@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use SPM-Kit Data Hunter in research, please cite this software."
+title: "SPM-Kit Data Hunter"
+type: software
+version: 2.0.0
+date-released: 2026-07-13
+license: MIT
+authors:
+  - family-names: Labarca Baeza
+    given-names: José
+    orcid: "https://orcid.org/0009-0006-8890-4048"
+repository-code: "https://github.com/kegouro/spmkit-data-hunter"
+url: "https://github.com/kegouro/spmkit-data-hunter"
+keywords:
+  - AFM
+  - SPM
+  - KPFM
+  - force spectroscopy
+  - open data
+  - scientific software validation

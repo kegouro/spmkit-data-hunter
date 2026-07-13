@@ -1,0 +1,26 @@
+.DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Generated catalogs and downloaded datasets
+spm_benchmarks/
+spm_datasets/
+datasets/
+*.part
+*.bad-checksum
+catalog.sqlite3
+catalog.sqlite3-shm
+catalog.sqlite3-wal

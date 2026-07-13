@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spmkit-data-hunter"
+version = "2.0.0"
+description = "Discover and curate public AFM/SPM datasets for scientific software validation."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "José Labarca Baeza" }
+]
+keywords = [
+  "AFM",
+  "SPM",
+  "KPFM",
+  "force spectroscopy",
+  "scientific software",
+  "open data",
+  "dataset discovery",
+  "validation"
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = [
+  "requests>=2.31,<3",
+  "tqdm>=4.66,<5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.5,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/kegouro/spmkit-data-hunter"
+Repository = "https://github.com/kegouro/spmkit-data-hunter"
+Issues = "https://github.com/kegouro/spmkit-data-hunter/issues"
+"Related project" = "https://github.com/kegouro/spmkit"
+
+[project.scripts]
+spmkit-data-hunter = "spmkit_data_hunter:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["spmkit_data_hunter"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = ["spm_benchmarks", "datasets"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
