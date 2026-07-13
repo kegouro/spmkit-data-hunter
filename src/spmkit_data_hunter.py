@@ -53,16 +53,16 @@ import logging
 import os
 import re
 import sqlite3
-import sys
 import tarfile
 import threading
 import time
 import zipfile
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Iterator, Sequence
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -366,6 +366,45 @@ def strip_html(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def normalize_doi(value: Any) -> str:
+    normalized = strip_html(value).strip()
+    if not normalized:
+        return ""
+    normalized = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", normalized, flags=re.I)
+    normalized = re.sub(r"^doi:\s*", "", normalized, flags=re.I)
+    return normalized.rstrip(".,;)").strip().casefold()
+
+
+def normalize_url(value: Any, *, github_root: bool = False) -> str:
+    raw = strip_html(value)
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return raw
+
+    host = parsed.netloc.casefold()
+    path = re.sub(r"/{2,}", "/", parsed.path or "/")
+    is_github = host in {"github.com", "www.github.com"}
+    if is_github:
+        host = "github.com"
+        path = path.rstrip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        if github_root:
+            parts = [part for part in path.split("/") if part]
+            if len(parts) >= 2:
+                parts[1] = parts[1].removesuffix(".git")
+                path = "/" + "/".join(parts[:2])
+
+    query = "" if github_root and is_github else parsed.query
+    return urlunparse(("https", host, path or "/", "", query, ""))
+
+
+def normalize_identifier(value: Any) -> str:
+    return strip_html(value).strip()
+
+
 def sanitize_component(value: str, max_length: int = 120) -> str:
     value = strip_html(value)
     value = re.sub(r"[^\w.\-+() ]+", "_", value, flags=re.UNICODE)
@@ -449,14 +488,14 @@ class FileAsset:
         size: int | None = None,
         checksum: str = "",
         source_file_id: str = "",
-    ) -> "FileAsset":
+    ) -> FileAsset:
         return cls(
-            name=name,
-            url=url,
+            name=strip_html(name).strip() or "unnamed",
+            url=normalize_url(url),
             size=size,
             checksum=checksum or "",
-            categories=sorted(infer_categories(name)),
-            source_file_id=str(source_file_id or ""),
+            categories=sorted(infer_categories(strip_html(name))),
+            source_file_id=normalize_identifier(source_file_id),
         )
 
 
@@ -480,14 +519,18 @@ class DatasetRecord:
     level: str = "bronze"
     score_reasons: list[str] = field(default_factory=list)
     discovered_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
 
     @property
     def key(self) -> str:
-        if self.doi:
-            return f"doi:{self.doi.casefold().strip()}"
-        return f"{self.source}:{self.source_id}"
+        doi = normalize_doi(self.doi)
+        if doi:
+            return f"doi:{doi}"
+        landing = normalize_url(self.landing_url, github_root=True)
+        if landing:
+            return f"url:{landing.casefold()}"
+        return f"{self.source}:{normalize_identifier(self.source_id)}"
 
     @property
     def categories(self) -> set[str]:
@@ -504,11 +547,51 @@ class DatasetRecord:
         return asdict(self)
 
 
+def normalize_record(record: DatasetRecord) -> DatasetRecord:
+    record.source = normalize_identifier(record.source).casefold()
+    record.source_id = normalize_identifier(record.source_id)
+    record.title = strip_html(record.title) or "Sin título"
+    record.description = strip_html(record.description)
+    record.doi = normalize_doi(record.doi)
+    record.landing_url = normalize_url(record.landing_url, github_root=True)
+    record.license = strip_html(record.license)
+    record.published = normalize_identifier(record.published)
+    record.modified = normalize_identifier(record.modified)
+    record.creators = list(dict.fromkeys(strip_html(value) for value in record.creators if strip_html(value)))
+    record.keywords = list(dict.fromkeys(strip_html(value) for value in record.keywords if strip_html(value)))
+
+    related: list[dict[str, str]] = []
+    seen_related: set[tuple[str, str, str]] = set()
+    for item in record.related_identifiers:
+        identifier = item.get("identifier", "")
+        scheme = item.get("scheme", "")
+        identifier = normalize_doi(identifier) if scheme.casefold() == "doi" else normalize_url(identifier)
+        relation = normalize_identifier(item.get("relation", ""))
+        key = (identifier.casefold(), relation.casefold(), scheme.casefold())
+        if identifier and key not in seen_related:
+            seen_related.add(key)
+            related.append({"identifier": identifier, "relation": relation, "scheme": scheme})
+    record.related_identifiers = related
+
+    unique_files: dict[str, FileAsset] = {}
+    for asset in record.files:
+        asset.name = strip_html(asset.name) or "unnamed"
+        asset.url = normalize_url(asset.url)
+        asset.checksum = normalize_identifier(asset.checksum)
+        asset.source_file_id = normalize_identifier(asset.source_file_id)
+        asset.categories = sorted(infer_categories(asset.name))
+        if asset.url and asset.url not in unique_files:
+            unique_files[asset.url] = asset
+    record.files = list(unique_files.values())
+    return record
+
+
 # ---------------------------------------------------------------------------
 # Puntuación de benchmarks
 # ---------------------------------------------------------------------------
 
 def score_record(record: DatasetRecord) -> DatasetRecord:
+    normalize_record(record)
     score = 0
     reasons: list[str] = []
     cats = record.categories
@@ -1025,7 +1108,7 @@ class Catalog:
         self.conn.commit()
 
     def upsert(self, record: DatasetRecord) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             """
             INSERT INTO records (
@@ -1401,7 +1484,7 @@ def export_catalog(records: Sequence[DatasetRecord], output_dir: Path) -> None:
     with report_path.open("w", encoding="utf-8") as handle:
         handle.write("# SPM-Kit Data Hunter Report\n\n")
         handle.write(
-            f"Generado: {datetime.now(timezone.utc).isoformat()}\n\n"
+            f"Generado: {datetime.now(UTC).isoformat()}\n\n"
         )
         handle.write(
             f"Registros únicos: **{len(records)}**  \n"
@@ -1452,16 +1535,41 @@ def merge_records(records: Iterable[DatasetRecord]) -> list[DatasetRecord]:
     queries: dict[str, list[str]] = {}
 
     for record in records:
+        normalize_record(record)
         existing = merged.get(record.key)
         queries.setdefault(record.key, [])
-        if record.matched_query not in queries[record.key]:
+        if record.matched_query and record.matched_query not in queries[record.key]:
             queries[record.key].append(record.matched_query)
 
-        if existing is None or record.score > existing.score:
+        if existing is None:
             merged[record.key] = record
+            continue
+
+        if record.score > existing.score:
+            primary, secondary = record, existing
+        else:
+            primary, secondary = existing, record
+
+        files = {asset.url: asset for asset in primary.files if asset.url}
+        for asset in secondary.files:
+            if asset.url and asset.url not in files:
+                files[asset.url] = asset
+        primary.files = list(files.values())
+        primary.keywords = list(dict.fromkeys(primary.keywords + secondary.keywords))
+        primary.related_identifiers = primary.related_identifiers + [
+            item for item in secondary.related_identifiers
+            if item not in primary.related_identifiers
+        ]
+        for field_name in ("doi", "landing_url", "license", "published", "modified"):
+            if not getattr(primary, field_name):
+                setattr(primary, field_name, getattr(secondary, field_name))
+        normalize_record(primary)
+        score_record(primary)
+        merged[record.key] = primary
 
     for key, record in merged.items():
         record.matched_query = " | ".join(queries[key])
+        score_record(record)
 
     return sorted(
         merged.values(),
