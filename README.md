@@ -26,11 +26,39 @@ Data Hunter detects these signals and ranks candidate records as:
 
 | Level | Meaning |
 |---|---|
-| **Gold** | Raw data plus processed results and code or documentation |
-| **Silver** | Raw data plus at least one strong validation companion |
-| **Bronze** | Potentially useful, but incomplete or weakly documented |
+| **Gold** | Domain-relevant, raw data plus processed results and code or documentation |
+| **Silver** | Domain-relevant, raw data plus at least one strong validation companion |
+| **Bronze** | Not domain-relevant, or relevant but incomplete |
+
+> **Important**: Gold and Silver now require passing the **domain relevance gate**
+> (see below). A well-documented ecology or oceanography dataset will remain Bronze
+> even with raw data, processed results, code, and documentation.
 
 The score is a discovery heuristic, not a scientific quality judgment. Every selected dataset should still be reviewed by a domain expert before being used as ground truth.
+
+### Domain relevance vs benchmark evidence
+
+Data Hunter now separates two distinct questions:
+
+1. **Domain relevance** – Does this record actually belong to AFM/SPM?
+2. **Benchmark evidence** – If it belongs, how complete is its validation chain?
+
+The domain relevance gate defines a set of deterministic, auditable rules. A record passes when it shows:
+
+- An explicit microscopy phrase ("atomic force microscopy", "Kelvin probe force microscopy", etc.), **or**
+- A native SPM file format (`.nid`, `.jpk-force`, `.gwy`, `.spm`, `.ibw`, etc.), **or**
+- At least two independent contextual signals (e.g., `AFM` + `Gwyddion`, `cantilever` + `force curve`, `KPFM` + `surface potential`).
+
+A single isolated `AFM` or `SPM` term is deliberately not enough. Well-documented datasets from unrelated disciplines will show clearly why they failed the gate.
+
+New fields in all outputs:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `score` | int | Final score (capped at 39 if not domain-relevant) |
+| `benchmark_score` | int | Quality of evidence chain (0–100) |
+| `relevance_score` | int | AFM/SPM domain signal strength (0–100) |
+| `domain_relevant` | bool | Whether the record passed the domain gate |
 
 ## Features
 
@@ -38,8 +66,8 @@ The score is a discovery heuristic, not a scientific quality judgment. Every sel
 - Query presets for topography, force spectroscopy, KPFM, grain analysis, and resonance.
 - Detects native SPM formats such as `.nid`, `.nhf`, `.gwy`, `.jpk-force`, `.spm`, `.ibw`, `.mtrx`, and `.sxm`.
 - Separates files into `raw`, `processed`, `code`, `documentation`, `archive`, and `image`.
-- Generates a 0–100 benchmark score and Gold/Silver/Bronze label.
-- Deduplicates records by DOI.
+- Generates a 0–100 benchmark score, relevance score, and Gold/Silver/Bronze label.
+- Deduplicates records by DOI. Domain-relevant records are preferred during merging.
 - Stores a persistent **SQLite catalog**.
 - Exports JSON, JSONL, CSV, and a readable Markdown report.
 - Supports resumable downloads with `.part` files.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spmkit-data-hunter"
-version = "2.0.0"
+version = "2.1.0"
 description = "Discover and curate public AFM/SPM datasets for scientific software validation."
 readme = "README.md"
 requires-python = ">=3.11"

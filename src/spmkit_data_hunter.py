@@ -74,7 +74,7 @@ except ImportError:  # pragma: no cover
     tqdm = None
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 DEFAULT_OUTPUT = Path("./spm_benchmarks")
 ZENODO_API = "https://zenodo.org/api/records"
 FIGSHARE_API = "https://api.figshare.com/v2"
@@ -467,6 +467,7 @@ def infer_categories(name: str) -> set[str]:
 # Modelos
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class FileAsset:
     name: str
@@ -518,9 +519,11 @@ class DatasetRecord:
     score: int = 0
     level: str = "bronze"
     score_reasons: list[str] = field(default_factory=list)
-    discovered_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    benchmark_score: int = 0
+    relevance_score: int = 0
+    domain_relevant: bool = False
+    relevance_reasons: list[str] = field(default_factory=list)
+    discovered_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     @property
     def key(self) -> str:
@@ -557,15 +560,21 @@ def normalize_record(record: DatasetRecord) -> DatasetRecord:
     record.license = strip_html(record.license)
     record.published = normalize_identifier(record.published)
     record.modified = normalize_identifier(record.modified)
-    record.creators = list(dict.fromkeys(strip_html(value) for value in record.creators if strip_html(value)))
-    record.keywords = list(dict.fromkeys(strip_html(value) for value in record.keywords if strip_html(value)))
+    record.creators = list(
+        dict.fromkeys(strip_html(value) for value in record.creators if strip_html(value))
+    )
+    record.keywords = list(
+        dict.fromkeys(strip_html(value) for value in record.keywords if strip_html(value))
+    )
 
     related: list[dict[str, str]] = []
     seen_related: set[tuple[str, str, str]] = set()
     for item in record.related_identifiers:
         identifier = item.get("identifier", "")
         scheme = item.get("scheme", "")
-        identifier = normalize_doi(identifier) if scheme.casefold() == "doi" else normalize_url(identifier)
+        identifier = (
+            normalize_doi(identifier) if scheme.casefold() == "doi" else normalize_url(identifier)
+        )
         relation = normalize_identifier(item.get("relation", ""))
         key = (identifier.casefold(), relation.casefold(), scheme.casefold())
         if identifier and key not in seen_related:
@@ -587,22 +596,231 @@ def normalize_record(record: DatasetRecord) -> DatasetRecord:
 
 
 # ---------------------------------------------------------------------------
+# Evaluación de relevancia de dominio AFM/SPM
+# ---------------------------------------------------------------------------
+
+# Frases fuertes no ambiguas. Cada una es suficiente por sí sola.
+_STRONG_PHRASES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(rf"\b{re.escape(phrase)}\b", re.IGNORECASE), phrase)
+    for phrase in [
+        "atomic force microscopy",
+        "atomic force microscope",
+        "scanning probe microscopy",
+        "scanning probe microscope",
+        "scanning tunneling microscopy",
+        "scanning tunneling microscope",
+        "kelvin probe force microscopy",
+        "magnetic force microscopy",
+        "electrostatic force microscopy",
+        "afm force spectroscopy",
+        "afm force curve",
+    ]
+]
+
+# Siglas con límite de palabra.
+_ACRONYM_LABELS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(rf"\b{re.escape(acr)}\b", re.IGNORECASE), acr)
+    for acr in ["AFM", "SPM", "KPFM", "MFM", "EFM", "STM"]
+]
+
+# Señales contextuales agrupadas en familias semánticas independientes.
+_CONTEXTUAL_FAMILIES: dict[str, list[tuple[re.Pattern[str], str]]] = {
+    "cantilever_mechanics": [
+        (re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE), term)
+        for term in [
+            "cantilever",
+            "spring constant",
+            "deflection sensitivity",
+            "thermal tune",
+            "force curve",
+            "force spectroscopy",
+            "nanoindentation",
+            "nanomechanical",
+        ]
+    ],
+    "topography": [
+        (re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE), term)
+        for term in ["topography", "topographic", "roughness"]
+    ],
+    "spm_software": [
+        (re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE), term)
+        for term in ["Gwyddion", "JPK", "Nanoscope", "WSxM", "TopoStats"]
+    ],
+    "force_spectroscopy": [
+        (re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE), term)
+        for term in [
+            "force curve",
+            "force spectroscopy",
+            "force-distance",
+            "force volume",
+        ]
+    ],
+    "scanning_modality": [
+        (re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE), term)
+        for term in [
+            "contact mode",
+            "tapping mode",
+            "peakforce",
+            "peak force",
+            "intermittent contact",
+            "phase imaging",
+            "amplitude modulation",
+            "frequency modulation",
+            "piezo",
+            "piezoelectric",
+        ]
+    ],
+}
+
+# Extensiones nativas SPM: señal fuerte por sí sola.
+_NATIVE_SPM_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".nid",
+        ".nhf",
+        ".gwy",
+        ".jpk",
+        ".jpk-force",
+        ".jpk-qi-data",
+        ".spm",
+        ".ibw",
+        ".mtrx",
+        ".sxm",
+        ".mdt",
+        ".sm4",
+    }
+)
+
+
+def _check_file_signals(record: DatasetRecord) -> dict[str, bool]:
+    """Detecta señales de AFM/SPM en nombres y extensiones de archivos."""
+    has_native = False
+    has_software = False
+    native_exts: list[str] = []
+    for asset in record.files:
+        suffix = full_suffix(asset.name)
+        if suffix in _NATIVE_SPM_EXTENSIONS:
+            has_native = True
+            native_exts.append(suffix)
+    return {"has_native": has_native, "has_software": has_software, "native_exts": native_exts}
+
+
+def _check_text_signals(text: str) -> dict[str, list[str]]:
+    """Escanea un texto en busca de frases fuertes, acrónimos y familias contextuales."""
+    result: dict[str, list[str]] = {
+        "strong_phrases": [],
+        "acronyms": [],
+        "families": {},
+    }
+    for pattern, label in _STRONG_PHRASES:
+        if pattern.search(text):
+            result["strong_phrases"].append(label)
+
+    for pattern, label in _ACRONYM_LABELS:
+        if pattern.search(text):
+            result["acronyms"].append(label)
+
+    for family_name, entries in _CONTEXTUAL_FAMILIES.items():
+        for pattern, label in entries:
+            if pattern.search(text):
+                result["families"].setdefault(family_name, []).append(label)
+
+    return result
+
+
+def _build_relevance_text(record: DatasetRecord) -> str:
+    """Combina los textos relevantes del registro para evaluación de dominio."""
+    parts: list[str] = [record.title]
+    if record.description:
+        parts.append(record.description)
+    if record.keywords:
+        parts.append(" ".join(record.keywords))
+    # Nombres de archivos como texto adicional (no extensiones)
+    file_names = [asset.name for asset in record.files]
+    if file_names:
+        parts.append(" ".join(file_names))
+    return " ".join(parts)
+
+
+def assess_domain_relevance(record: DatasetRecord) -> DatasetRecord:
+    """Evalúa si un registro pertenece al dominio AFM/SPM.
+
+    Detecta señales fuertes (frases exactas, extensiones nativas) y débiles
+    (siglas, familias contextuales).  Aplica una regla de gate documentada.
+
+    La función es pura, determinista y no depende de la red.
+    """
+    reasons: list[str] = []
+    score = 0
+
+    # ── Señales desde archivos ─────────────────────────────────────────
+    file_sigs = _check_file_signals(record)
+
+    if file_sigs["has_native"]:
+        exts = file_sigs["native_exts"]
+        score += 60
+        reasons.append(f"+60 formato SPM nativo: {', '.join(exts)}")
+        record.relevance_score = min(100, score)
+        record.domain_relevant = True
+        record.relevance_reasons = reasons
+        return record
+
+    # ── Señales desde texto ────────────────────────────────────────────
+    text = _build_relevance_text(record)
+    sigs = _check_text_signals(text)
+
+    # Frases fuertes (inequívocas).
+    for phrase in sigs["strong_phrases"]:
+        score += 60
+        reasons.append(f'+60 frase AFM/SPM inequívoca: "{phrase}"')
+        break  # Una sola frase fuerte basta
+
+    if score >= 60:
+        record.relevance_score = min(100, score)
+        record.domain_relevant = True
+        record.relevance_reasons = reasons
+        return record
+
+    # Acrónimos (señal débil, no suficiente sola).
+    for acr in sigs["acronyms"]:
+        score += 20
+        reasons.append(f"+20 sigla AFM/SPM: {acr}")
+        break  # No repetir la misma familia de acrónimos
+
+    # Familias contextuales (cada familia cuenta una vez).
+    family_bonus = 15
+    families_detected: list[str] = []
+    for fam_name, hits in sigs["families"].items():
+        families_detected.append(fam_name)
+        reasons.append(f"+{family_bonus} señal contextual ({fam_name}): {', '.join(hits[:3])}")
+        score += family_bonus
+
+    # Gate: se requiere al menos una señal fuerte, o dos familias independientes.
+    independent_families = len(sigs["acronyms"]) + len(families_detected)
+    if score >= 60 or independent_families >= 2:
+        record.domain_relevant = True
+        reasons.append("gate aprobado: evidencia AFM/SPM suficiente")
+    else:
+        record.domain_relevant = False
+        if reasons:
+            reasons.append("gate rechazado: evidencia AFM/SPM insuficiente")
+        else:
+            reasons.append("gate rechazado: sin evidencia de AFM/SPM")
+
+    record.relevance_score = max(0, min(100, score))
+    record.relevance_reasons = reasons
+    return record
+
+
+# ---------------------------------------------------------------------------
 # Puntuación de benchmarks
 # ---------------------------------------------------------------------------
 
-def score_record(record: DatasetRecord) -> DatasetRecord:
-    normalize_record(record)
+
+def calculate_benchmark_score(record: DatasetRecord) -> tuple[int, list[str]]:
+    """Calcula la calidad de la cadena de evidencia (0-100), sin evaluar relevancia AFM/SPM."""
     score = 0
     reasons: list[str] = []
     cats = record.categories
-    combined = " ".join(
-        [
-            record.title,
-            record.description,
-            " ".join(record.keywords),
-            " ".join(asset.name for asset in record.files),
-        ]
-    ).casefold()
 
     if "raw" in cats:
         score += 32
@@ -627,12 +845,14 @@ def score_record(record: DatasetRecord) -> DatasetRecord:
         score += 4
         reasons.append("+4 contiene archivos comprimidos inspeccionables")
 
-    if contains_any(combined, SPM_WORDS):
-        score += 8
-        reasons.append("+8 el registro es claramente pertinente a SPM/AFM")
-    else:
-        score -= 25
-        reasons.append("-25 pertinencia SPM/AFM débil")
+    combined = " ".join(
+        [
+            record.title,
+            record.description,
+            " ".join(record.keywords),
+            " ".join(asset.name for asset in record.files),
+        ]
+    ).casefold()
 
     if contains_any(combined, RAW_WORDS):
         score += 5
@@ -671,20 +891,51 @@ def score_record(record: DatasetRecord) -> DatasetRecord:
         score += 5
         reasons.append("+5 cadena de evidencia muy completa")
 
-    score = max(0, min(100, score))
+    return max(0, min(100, score)), reasons
 
-    if (
-        score >= 72
-        and {"raw", "processed"}.issubset(cats)
-        and bool(cats.intersection({"code", "documentation"}))
-    ):
-        level = "gold"
-    elif score >= 48 and "raw" in cats and bool(
-        cats.intersection({"processed", "code", "documentation"})
-    ):
-        level = "silver"
+
+def score_record(record: DatasetRecord) -> DatasetRecord:
+    normalize_record(record)
+
+    # 1. Evaluar relevancia de dominio (gate).
+    assess_domain_relevance(record)
+
+    # 2. Calcular calidad documental (benchmark).
+    benchmark, bm_reasons = calculate_benchmark_score(record)
+    record.benchmark_score = benchmark
+
+    # 3. Calcular score final.
+    cats = record.categories
+    reasons: list[str] = []
+
+    if record.domain_relevant:
+        # El registro pertenece a AFM/SPM: score basado en calidad documental.
+        score = benchmark
+
+        if (
+            score >= 72
+            and {"raw", "processed"}.issubset(cats)
+            and bool(cats.intersection({"code", "documentation"}))
+        ):
+            level = "gold"
+        elif (
+            score >= 48
+            and "raw" in cats
+            and bool(cats.intersection({"processed", "code", "documentation"}))
+        ):
+            level = "silver"
+        else:
+            level = "bronze"
+
+        reasons.extend(bm_reasons)
     else:
+        # Registro irrelevante: score limitado. No puede ser Gold ni Silver.
+        score = min(benchmark, 39)
         level = "bronze"
+        reasons.append(
+            f"gate de dominio: sin evidencia AFM/SPM suficiente (score limitado a {score})"
+        )
+        reasons.extend(bm_reasons)
 
     record.score = score
     record.level = level
@@ -695,6 +946,7 @@ def score_record(record: DatasetRecord) -> DatasetRecord:
 # ---------------------------------------------------------------------------
 # HTTP robusto y límites responsables
 # ---------------------------------------------------------------------------
+
 
 class HostRateLimiter:
     def __init__(self, interval_seconds: float = 1.05) -> None:
@@ -768,6 +1020,7 @@ class HttpClient:
 # ---------------------------------------------------------------------------
 # Fuentes
 # ---------------------------------------------------------------------------
+
 
 class Source:
     name = "base"
@@ -1033,9 +1286,7 @@ class FigshareSource(Source):
                 if article_id is None:
                     continue
                 try:
-                    detail = self.client.get_json(
-                        f"{FIGSHARE_API}/articles/{article_id}"
-                    )
+                    detail = self.client.get_json(f"{FIGSHARE_API}/articles/{article_id}")
                     records.append(self._parse_detail(detail, query))
                 except (requests.RequestException, ValueError) as exc:
                     LOG.warning("Figshare %s no pudo leerse: %s", article_id, exc)
@@ -1053,6 +1304,7 @@ class FigshareSource(Source):
 # ---------------------------------------------------------------------------
 # Catálogo persistente
 # ---------------------------------------------------------------------------
+
 
 class Catalog:
     def __init__(self, path: Path) -> None:
@@ -1105,6 +1357,24 @@ class Catalog:
                 ON records(level);
             """
         )
+        self._migrate_schema()
+        self.conn.commit()
+
+    def _migrate_schema(self) -> None:
+        """Agrega columnas de v2.1.0 a catálogos creados con v2.0.0."""
+        existing = {row[1] for row in self.conn.execute("PRAGMA table_info(records)").fetchall()}
+        if "benchmark_score" not in existing:
+            self.conn.execute(
+                "ALTER TABLE records ADD COLUMN benchmark_score INTEGER NOT NULL DEFAULT 0"
+            )
+        if "relevance_score" not in existing:
+            self.conn.execute(
+                "ALTER TABLE records ADD COLUMN relevance_score INTEGER NOT NULL DEFAULT 0"
+            )
+        if "domain_relevant" not in existing:
+            self.conn.execute(
+                "ALTER TABLE records ADD COLUMN domain_relevant INTEGER NOT NULL DEFAULT 0"
+            )
         self.conn.commit()
 
     def upsert(self, record: DatasetRecord) -> None:
@@ -1114,8 +1384,8 @@ class Catalog:
             INSERT INTO records (
                 record_key, source, source_id, title, doi, landing_url, license,
                 published, modified, score, level, matched_query, metadata_json,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                updated_at, benchmark_score, relevance_score, domain_relevant
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(record_key) DO UPDATE SET
                 title=excluded.title,
                 doi=excluded.doi,
@@ -1137,7 +1407,13 @@ class Catalog:
                     WHEN excluded.score >= records.score THEN excluded.metadata_json
                     ELSE records.metadata_json
                 END,
-                updated_at=excluded.updated_at
+                updated_at=excluded.updated_at,
+                benchmark_score=excluded.benchmark_score,
+                relevance_score=excluded.relevance_score,
+                domain_relevant=CASE
+                    WHEN records.domain_relevant = 1 THEN 1
+                    ELSE excluded.domain_relevant
+                END
             """,
             (
                 record.key,
@@ -1154,6 +1430,9 @@ class Catalog:
                 record.matched_query,
                 json.dumps(record.to_dict(), ensure_ascii=False),
                 now,
+                record.benchmark_score,
+                record.relevance_score,
+                1 if record.domain_relevant else 0,
             ),
         )
 
@@ -1218,6 +1497,7 @@ class Catalog:
 # ---------------------------------------------------------------------------
 # Descarga segura, reanudable y verificable
 # ---------------------------------------------------------------------------
+
 
 def parse_checksum(value: str) -> tuple[str, str] | None:
     if not value:
@@ -1350,9 +1630,7 @@ def download_asset(
 
                 current_size = handle.tell()
                 if current_size > max_file_bytes:
-                    raise RuntimeError(
-                        f"El archivo excedió el límite de {max_file_bytes} bytes"
-                    )
+                    raise RuntimeError(f"El archivo excedió el límite de {max_file_bytes} bytes")
     finally:
         if bar is not None:
             bar.close()
@@ -1403,9 +1681,7 @@ def archive_inventory(path: Path, max_entries: int = 20_000) -> dict[str, Any]:
             safe_name = str(PurePosixPath(name))
             entry_categories = sorted(infer_categories(safe_name))
             categories.update(entry_categories)
-            clean_entries.append(
-                {"name": safe_name, "categories": entry_categories}
-            )
+            clean_entries.append({"name": safe_name, "categories": entry_categories})
 
         inventory["entries"] = clean_entries
         inventory["detected_categories"] = sorted(categories)
@@ -1418,6 +1694,7 @@ def archive_inventory(path: Path, max_entries: int = 20_000) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Exportes legibles
 # ---------------------------------------------------------------------------
+
 
 def export_catalog(records: Sequence[DatasetRecord], output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1443,6 +1720,9 @@ def export_catalog(records: Sequence[DatasetRecord], output_dir: Path) -> None:
             fieldnames=[
                 "level",
                 "score",
+                "benchmark_score",
+                "relevance_score",
+                "domain_relevant",
                 "source",
                 "source_id",
                 "title",
@@ -1462,6 +1742,9 @@ def export_catalog(records: Sequence[DatasetRecord], output_dir: Path) -> None:
                 {
                     "level": record.level,
                     "score": record.score,
+                    "benchmark_score": record.benchmark_score,
+                    "relevance_score": record.relevance_score,
+                    "domain_relevant": "yes" if record.domain_relevant else "no",
                     "source": record.source,
                     "source_id": record.source_id,
                     "title": record.title,
@@ -1483,23 +1766,25 @@ def export_catalog(records: Sequence[DatasetRecord], output_dir: Path) -> None:
     }
     with report_path.open("w", encoding="utf-8") as handle:
         handle.write("# SPM-Kit Data Hunter Report\n\n")
-        handle.write(
-            f"Generado: {datetime.now(UTC).isoformat()}\n\n"
-        )
+        handle.write(f"Generado: {datetime.now(UTC).isoformat()}\n\n")
         handle.write(
             f"Registros únicos: **{len(records)}**  \n"
             f"Gold: **{counts['gold']}**, Silver: **{counts['silver']}**, "
             f"Bronze: **{counts['bronze']}**\n\n"
         )
         handle.write("## Ranking\n\n")
-        handle.write("| Nivel | Score | Fuente | Título | Categorías | DOI |\n")
-        handle.write("|---|---:|---|---|---|---|\n")
+        handle.write(
+            "| Nivel | Score | Benchmark | Relevancia | Domain | Fuente | Título | Categorías | DOI |\n"
+        )
+        handle.write("|---|---:|---:|---:|---:|---|---|---|---|\n")
         for record in records[:100]:
             title = record.title.replace("|", "\\|")
             cats = ", ".join(sorted(record.categories))
             doi = record.doi or ""
+            relevance = "yes" if record.domain_relevant else "no"
             handle.write(
-                f"| {record.level.title()} | {record.score} | {record.source} | "
+                f"| {record.level.title()} | {record.score} | {record.benchmark_score} "
+                f"| {record.relevance_score} | {relevance} | {record.source} | "
                 f"{title} | {cats} | {doi} |\n"
             )
 
@@ -1511,24 +1796,29 @@ def print_ranking(records: Sequence[DatasetRecord], top: int) -> None:
 
     print()
     print("=" * 100)
-    print(f"{'NIVEL':<8} {'PTS':>3}  {'FUENTE':<10} TÍTULO")
+    print(f"{'NIVEL':<8} {'PTS':>3}  DOMAIN  {'FUENTE':<10} TÍTULO")
     print("=" * 100)
     for record in records[:top]:
         title = record.title
-        if len(title) > 68:
-            title = title[:65] + "..."
+        if len(title) > 58:
+            title = title[:55] + "..."
+        domain_mark = "✓" if record.domain_relevant else "✗"
         print(
-            f"{record.level.upper():<8} {record.score:>3}  "
+            f"{record.level.upper():<8} {record.score:>3}  {domain_mark:<6} "
             f"{record.source:<10} {title}"
         )
         print(f"{'':<24} {record.landing_url}")
-        print(f"{'':<24} categorías: {', '.join(sorted(record.categories))}")
+        cats_str = ", ".join(sorted(record.categories))
+        if not record.domain_relevant:
+            cats_str += " | gate: sin evidencia AFM/SPM"
+        print(f"{'':<24} categorías: {cats_str}")
     print("=" * 100)
 
 
 # ---------------------------------------------------------------------------
 # Orquestación
 # ---------------------------------------------------------------------------
+
 
 def merge_records(records: Iterable[DatasetRecord]) -> list[DatasetRecord]:
     merged: dict[str, DatasetRecord] = {}
@@ -1545,7 +1835,12 @@ def merge_records(records: Iterable[DatasetRecord]) -> list[DatasetRecord]:
             merged[record.key] = record
             continue
 
-        if record.score > existing.score:
+        # Preferir versión relevante sobre irrelevante, incluso si tiene menor score.
+        if record.domain_relevant and not existing.domain_relevant:
+            primary, secondary = record, existing
+        elif existing.domain_relevant and not record.domain_relevant:
+            primary, secondary = existing, record
+        elif record.score > existing.score:
             primary, secondary = record, existing
         else:
             primary, secondary = existing, record
@@ -1557,7 +1852,8 @@ def merge_records(records: Iterable[DatasetRecord]) -> list[DatasetRecord]:
         primary.files = list(files.values())
         primary.keywords = list(dict.fromkeys(primary.keywords + secondary.keywords))
         primary.related_identifiers = primary.related_identifiers + [
-            item for item in secondary.related_identifiers
+            item
+            for item in secondary.related_identifiers
             if item not in primary.related_identifiers
         ]
         for field_name in ("doi", "landing_url", "license", "published", "modified"):
@@ -1574,6 +1870,7 @@ def merge_records(records: Iterable[DatasetRecord]) -> list[DatasetRecord]:
     return sorted(
         merged.values(),
         key=lambda item: (
+            1 if item.domain_relevant else 0,
             {"gold": 3, "silver": 2, "bronze": 1}.get(item.level, 0),
             item.score,
             item.published,
@@ -1594,11 +1891,7 @@ def select_assets(
 ) -> list[FileAsset]:
     if not categories:
         return list(record.files)
-    return [
-        asset
-        for asset in record.files
-        if categories.intersection(asset.categories)
-    ]
+    return [asset for asset in record.files if categories.intersection(asset.categories)]
 
 
 def write_record_metadata(record: DatasetRecord, folder: Path) -> None:
@@ -1609,12 +1902,18 @@ def write_record_metadata(record: DatasetRecord, folder: Path) -> None:
     with (folder / "WHY_THIS_DATASET.md").open("w", encoding="utf-8") as handle:
         handle.write(f"# {record.title}\n\n")
         handle.write(f"- Nivel: **{record.level.title()}**\n")
-        handle.write(f"- Puntaje: **{record.score}/100**\n")
+        handle.write(f"- Puntaje final: **{record.score}/100**\n")
+        handle.write(f"- Benchmark score: **{record.benchmark_score}/100**\n")
+        handle.write(f"- Relevance score: **{record.relevance_score}/100**\n")
+        handle.write(f"- Domain relevant: **{'yes' if record.domain_relevant else 'no'}**\n")
         handle.write(f"- Fuente: `{record.source}`\n")
         handle.write(f"- DOI: `{record.doi or 'no informado'}`\n")
         handle.write(f"- Licencia: `{record.license or 'no informada'}`\n")
         handle.write(f"- URL: {record.landing_url}\n\n")
-        handle.write("## Razones de la puntuación\n\n")
+        handle.write("## Razones de relevancia\n\n")
+        for reason in record.relevance_reasons:
+            handle.write(f"- {reason}\n")
+        handle.write("\n## Razones del benchmark\n\n")
         for reason in record.score_reasons:
             handle.write(f"- {reason}\n")
 
@@ -1687,17 +1986,11 @@ def download_record(
             checksum_status=checksum_status,
         )
 
-        if (
-            inspect_archives
-            and destination.exists()
-            and "archive" in asset.categories
-        ):
+        if inspect_archives and destination.exists() and "archive" in asset.categories:
             inventory_entries.append(archive_inventory(destination))
 
     if inventory_entries:
-        with (record_folder / "archive_inventory.json").open(
-            "w", encoding="utf-8"
-        ) as handle:
+        with (record_folder / "archive_inventory.json").open("w", encoding="utf-8") as handle:
             json.dump(inventory_entries, handle, indent=2, ensure_ascii=False)
 
     # Reescribir metadata con estados finales de descarga.
@@ -1741,6 +2034,7 @@ def build_sources(names: Sequence[str], client: HttpClient) -> list[Source]:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -1900,6 +2194,7 @@ def run_self_tests() -> None:
         "d41d8cd98f00b204e9800998ecf8427e",
     )
 
+    # ── Gold AFM válido ──────────────────────────────────────────────
     sample = DatasetRecord(
         source="test",
         source_id="1",
@@ -1935,6 +2230,86 @@ def run_self_tests() -> None:
     score_record(sample)
     assert sample.level == "gold", (sample.score, sample.score_reasons)
     assert sample.score >= 72
+    assert sample.domain_relevant is True
+
+    # ── Falso positivo ecológico ─────────────────────────────────────
+    eco = DatasetRecord(
+        source="test",
+        source_id="fp-eco",
+        title="Regional niche differentiation and reciprocal transfer analyses for Polistes rothneyi",
+        description="Ecological study with statistical models and field observations.",
+        doi="10.0000/eco",
+        license="CC-BY-4.0",
+        files=[
+            FileAsset.build(name="raw_data.csv", url="https://example.org/raw_data.csv"),
+            FileAsset.build(name="processed_results.csv", url="https://example.org/results.csv"),
+            FileAsset.build(name="analysis.py", url="https://example.org/analysis.py"),
+            FileAsset.build(name="README.md", url="https://example.org/README.md"),
+            FileAsset.build(name="methods.pdf", url="https://example.org/methods.pdf"),
+        ],
+    )
+    score_record(eco)
+    assert eco.domain_relevant is False, eco.relevance_reasons
+    assert eco.level == "bronze"
+    assert eco.score <= 39, eco.score
+
+    # ── Formato nativo .nid aprueba relevancia ───────────────────────
+    nid = DatasetRecord(
+        source="test",
+        source_id="nid-test",
+        title="Surface characterization measurements",
+        files=[
+            FileAsset.build(name="sample.nid", url="https://example.org/sample.nid"),
+        ],
+    )
+    score_record(nid)
+    assert nid.domain_relevant is True, nid.relevance_reasons
+    assert nid.relevance_score >= 60
+
+    # ── Frase exacta "atomic force microscopy" ────────────────────────
+    afm_phrase = DatasetRecord(
+        source="test",
+        source_id="afm-phrase",
+        title="Atomic force microscopy topography dataset",
+        files=[
+            FileAsset.build(name="raw_data.csv", url="https://example.org/raw_data.csv"),
+            FileAsset.build(name="results.csv", url="https://example.org/results.csv"),
+        ],
+    )
+    score_record(afm_phrase)
+    assert afm_phrase.domain_relevant is True, afm_phrase.relevance_reasons
+
+    # ── AFM aislado sin corroboración ────────────────────────────────
+    afm_isolated = DatasetRecord(
+        source="test",
+        source_id="afm-iso",
+        title="AFM dataset",
+        files=[
+            FileAsset.build(name="raw_data.csv", url="https://example.org/raw_data.csv"),
+            FileAsset.build(name="results.csv", url="https://example.org/results.csv"),
+        ],
+    )
+    score_record(afm_isolated)
+    assert afm_isolated.domain_relevant is False or afm_isolated.level == "bronze", (
+        afm_isolated.domain_relevant,
+        afm_isolated.level,
+        afm_isolated.relevance_reasons,
+    )
+
+    # ── Substring no debe activar sigla ──────────────────────────────
+    no_afm = DatasetRecord(
+        source="test",
+        source_id="no-afm",
+        title="Staff meeting notes and metrics dashboard",
+        files=[
+            FileAsset.build(name="data.csv", url="https://example.org/data.csv"),
+        ],
+    )
+    score_record(no_afm)
+    assert (
+        "AFM" not in " ".join(no_afm.relevance_reasons).upper() or no_afm.domain_relevant is False
+    )
+
     print("Self-test: OK")
 
 
@@ -2013,11 +2388,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         if args.download:
-            chosen = [
-                record
-                for record in records
-                if record.level in set(args.levels)
-            ]
+            chosen = [record for record in records if record.level in set(args.levels)]
             print(f"\nDescargando {len(chosen)} registros seleccionados...")
             for record in chosen:
                 LOG.info(
