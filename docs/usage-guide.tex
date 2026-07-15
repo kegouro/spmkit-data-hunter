@@ -1,0 +1,677 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{margin=2.2cm}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{tabularx}
+\usepackage{listings}
+
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{infocolor}{RGB}{230,240,255}
+\definecolor{warncolor}{RGB}{255,245,230}
+\definecolor{tipcolor}{RGB}{230,255,230}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framesep=6pt,
+  rulecolor=\color{lightgray},
+  aboveskip=8pt,
+  belowskip=8pt,
+  breaklines=true,
+}
+
+\newtcbox{\infobox}{colback=infocolor,colframe=blue!40,left=8pt,right=8pt,top=6pt,bottom=6pt}
+\newtcbox{\warnbox}{colback=warncolor,colframe=orange!60,left=8pt,right=8pt,top=6pt,bottom=6pt}
+\newtcbox{\tipbox}{colback=tipcolor,colframe=green!50,left=8pt,right=8pt,top=6pt,bottom=6pt}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60,
+  urlcolor=blue!60,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small SPM-Kit Data Hunter --- Usage Guide v2.2.0}
+\fancyhead[R]{\small \thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{\textbf{SPM-Kit Data Hunter}\\[4pt]\Large Usage Guide v2.2.0}
+\author{José Labarca Baeza}
+\date{July 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{center}
+\textit{Deep, resumable discovery of public AFM/SPM validation evidence}
+
+\vspace{8pt}
+MIT License \textbar{} \url{https://github.com/kegouro/spmkit-data-hunter}
+\end{center}
+
+\vspace{12pt}
+\tableofcontents
+\newpage
+
+% ======================================================================
+\section{Introduction}
+% ======================================================================
+
+SPM-Kit Data Hunter is a command-line tool that discovers, catalogs, classifies, and selectively downloads public AFM/SPM datasets from scientific repositories. It searches Zenodo, Figshare, and DataCite through official public APIs — not by scraping commercial websites.
+
+Its purpose is to find and organize the evidence chains needed to validate scientific software for atomic force microscopy (AFM) and scanning probe microscopy (SPM). A validation chain requires more than isolated files: it needs native instrument data, processing methods or code, processed outputs, and publication context.
+
+Data Hunter does \textbf{not} declare scientific ground truth. It provides structure, classification, and provenance so that human reviewers can make informed decisions.
+
+\subsection*{Key Design Principles}
+
+\begin{itemize}[nosep]
+  \item \textbf{Discovery is not validation} — a search result is a candidate, not a benchmark.
+  \item \textbf{Raw-only datasets are reader fixtures}, not analysis validators.
+  \item \textbf{Processed reference values are evidence}, not absolute truth.
+  \item \textbf{Scientific review remains necessary} before any validation claim.
+\end{itemize}
+
+\bigskip
+{\infobox{\textbf{Note:} Data Hunter is alpha software (v2.2.0). Expect improvements to classification heuristics, source coverage, and format intelligence in future releases.}}
+
+% ======================================================================
+\section{Installation}
+% ======================================================================
+
+\textbf{Requirements:} Python 3.11 or later, pip, git.
+
+\subsection*{Clone and Set Up}
+
+\begin{lstlisting}
+git clone https://github.com/kegouro/spmkit-data-hunter.git
+cd spmkit-data-hunter
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+\end{lstlisting}
+
+On Windows PowerShell:
+
+\begin{lstlisting}
+.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+\end{lstlisting}
+
+\subsection*{Verify the Installation}
+
+\begin{lstlisting}
+spmkit-data-hunter doctor
+spmkit-data-hunter sources list
+pytest
+ruff check .
+\end{lstlisting}
+
+The \texttt{doctor} command reports whether optional API tokens are detected (it never prints their values) and lists available source adapters.
+
+\subsection*{Dependencies}
+
+\begin{tabular}{ll}
+\toprule
+\textbf{Type} & \textbf{Packages} \\
+\midrule
+Runtime & \texttt{requests} (HTTP client), \texttt{tqdm} (progress bars) \\
+Development & \texttt{pytest} (testing), \texttt{ruff} (linting/formatting) \\
+\bottomrule
+\end{tabular}
+
+\bigskip
+{\tipbox{\textbf{Tip:} Optional API tokens (\texttt{ZENODO\_TOKEN}, \texttt{FIGSHARE\_TOKEN}, \texttt{GITHUB\_TOKEN}) may improve rate limits but are not required for public discovery.}}
+
+% ======================================================================
+\section{Core Concepts}
+% ======================================================================
+
+\subsection{Evidence Chains}
+
+Data Hunter scores records by the completeness of their evidence chain:
+
+\begin{center}
+\texttt{native data $\rightarrow$ method/code $\rightarrow$ processed output $\rightarrow$ publication}
+\end{center}
+
+Each link contributes to the benchmark score. A file alone tests a reader; a full chain enables validation.
+
+\subsection{Domain Relevance Gate}
+
+Before scoring, every record passes through a deterministic, offline domain relevance check. It detects AFM/SPM signals through:
+
+\begin{itemize}[nosep]
+  \item \textbf{Strong phrases:} ``atomic force microscopy'', ``scanning probe microscopy'', ``KPFM'', etc.
+  \item \textbf{Acronyms:} AFM, SPM, KPFM, MFM, EFM, STM.
+  \item \textbf{Contextual families:} cantilever mechanics, topography, SPM software, force spectroscopy.
+  \item \textbf{Native file extensions:} \texttt{.nid}, \texttt{.gwy}, \texttt{.jpk}, \texttt{.spm}, \texttt{.ibw}, \texttt{.sxm}, \texttt{.mdt}, \texttt{.sm4}, etc.
+\end{itemize}
+
+Records that fail the gate receive capped scores and cannot be Gold or Silver.
+
+\subsection{Utility Classes}
+
+Every record receives one of \textbf{seven utility classes}. This is the most important classification — it tells you what the record can actually support.
+
+\begin{center}
+\begin{tabular}{p{3.5cm}p{4.8cm}p{5.5cm}}
+\toprule
+\textbf{Class} & \textbf{Criteria} & \textbf{Valid Use} \\
+\midrule
+\texttt{benchmark\_ready} & Distinct raw + processed assets + method/code & Analysis validation candidate (requires human review) \\
+\texttt{crosscheck\_candidate} & Distinct raw + processed, incomplete method/code & Preliminary comparison, manual follow-up \\
+\texttt{reader\_fixture} & Raw/native data, no processed reference & Reader, parser, channel, robustness tests \\
+\texttt{processed\_ref\_only} & Processed output, no recoverable raw input & Numerical context, format examples \\
+\texttt{documentation\_only} & Paper, script without usable data & Query expansion, provenance \\
+\texttt{incomplete} & Insufficient or ambiguous evidence & Manual triage, query refinement \\
+\texttt{rejected} & Corrupt, empty, unsafe, irrelevant & None without resolving the issue \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Heuristic Levels: Gold, Silver, Bronze}
+
+Gold, Silver, and Bronze are compact convenience labels that combine benchmark score with utility class. They are \textbf{NOT} declarations of scientific truth. Prefer the utility class for decision-making.
+
+\begin{itemize}[nosep]
+  \item \textbf{Gold} — \texttt{benchmark\_ready} AND score $\ge$ 72.
+  \item \textbf{Silver} — \texttt{benchmark\_ready} or \texttt{crosscheck\_candidate} AND score $\ge$ 48.
+  \item \textbf{Bronze} — everything else.
+\end{itemize}
+
+\subsection{File Categories}
+
+Files are classified by extension with token-aware name analysis (word boundaries prevent substring traps like \texttt{drawings.csv} matching ``raw''):
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Category} & \textbf{Example Extensions} \\
+\midrule
+\texttt{raw} & \texttt{.nid .gwy .jpk .jpk-force .spm .ibw .sxm .mdt .sm4} \\
+\texttt{processed} & \texttt{.csv .tsv .xlsx .json .tif .h5 .npy .npz .mat} \\
+\texttt{code} & \texttt{.py .ipynb .m .r .jl .cpp .sh .toml} \\
+\texttt{documentation} & \texttt{.md .pdf .tex .rst .docx .html} \\
+\texttt{image} & \texttt{.png .jpg .svg .bmp .webp} \\
+\texttt{archive} & \texttt{.zip .tar.gz .tar.bz2 .tar.xz .7z .rar} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ======================================================================
+\section{Command Reference}
+% ======================================================================
+
+The CLI has two modes: the \textbf{new subcommand tree} (campaign, download, doctor, sources) and the \textbf{legacy flag-only mode}. The new mode is recommended for all work.
+
+\subsection{Global Entry Point}
+
+\begin{lstlisting}
+spmkit-data-hunter [command]
+  --version    Print version and exit
+  --help       Print help and exit
+\end{lstlisting}
+
+\subsection{\texttt{doctor} --- Inspect Installation}
+
+\begin{lstlisting}
+spmkit-data-hunter doctor [--json]
+\end{lstlisting}
+
+Reports Python version, platform, user agent, detected API tokens (presence only, never values), and available source adapters.
+
+\subsection{\texttt{sources list} --- List Source Adapters}
+
+\begin{lstlisting}
+spmkit-data-hunter sources list
+\end{lstlisting}
+
+Prints JSON with source name, role, file inventory support, checksum support, resume strategy, and auth requirements.
+
+% ======================================================================
+\section{Campaign Commands}
+% ======================================================================
+
+Campaigns persist progress in SQLite. They survive interruptions, can be paused/resumed/stopped, and export results to multiple formats.
+
+\subsection{\texttt{campaign create} --- Define a Campaign}
+
+\begin{lstlisting}
+spmkit-data-hunter campaign create <name>
+  --output <path>          Output directory (default: ./spm_benchmarks)
+  --source <name>          Source adapter (repeatable)
+  --preset <name>          Query preset (repeatable)
+  --query <text>           Custom query (repeatable)
+  --page-size <n>          Records per page (default: 100)
+  --max-runtime <dur>      Time budget: 0=unlimited, 1h, 30m, 3600
+  --max-records <n>        Record budget: 0=unlimited
+  --heartbeat <n>          Heartbeat interval in seconds (default: 15)
+  --min-score <n>          Minimum score filter (default: 0)
+  --require-open-license   Only include records with open licenses
+  --rate-seconds <n>       Delay between API calls (default: 1.05)
+  --timeout <n>            HTTP timeout in seconds (default: 45.0)
+\end{lstlisting}
+
+The configuration is frozen at creation time. To change parameters, create a new campaign.
+
+\subsection{\texttt{campaign run} / \texttt{campaign resume}}
+
+\begin{lstlisting}
+spmkit-data-hunter campaign run <name> [--output <path>]
+spmkit-data-hunter campaign resume <name> [--output <path>]
+\end{lstlisting}
+
+\subsection{\texttt{campaign status} / \texttt{campaign list}}
+
+\begin{lstlisting}
+spmkit-data-hunter campaign status <name> [--output <path>]
+spmkit-data-hunter campaign list [--output <path>]
+\end{lstlisting}
+
+\subsection{\texttt{campaign pause} / \texttt{campaign stop}}
+
+\begin{lstlisting}
+spmkit-data-hunter campaign pause <name>
+spmkit-data-hunter campaign stop <name>
+\end{lstlisting}
+
+Requests graceful interruption at the next safe page checkpoint. \texttt{Ctrl+C} during a run is equivalent to pause.
+
+\subsection{\texttt{campaign verify} --- Probe Remote Files}
+
+\begin{lstlisting}
+spmkit-data-hunter campaign verify <name>
+  --max-files <n>          Limit number of files to probe
+  --rate-seconds <n>       Delay between probes
+  --timeout <n>            HTTP timeout
+\end{lstlisting}
+
+Uses HEAD requests (falling back to one-byte range) to check reachability. Does \textbf{not} download file contents.
+
+\subsection{\texttt{campaign export} --- Export Campaign Catalog}
+
+\begin{lstlisting}
+spmkit-data-hunter campaign export <name>
+  --output <path>          Campaign output directory
+  --target <path>          Export destination (defaults to --output)
+\end{lstlisting}
+
+Exports all records to JSON, JSONL, CSV, and Markdown files.
+
+\bigskip
+{\warnbox{\textbf{Warning:} A campaign checkpoint advances only after the entire page is committed. A failed API partition is \textbf{never} marked exhausted — it retries on the next resume.}}
+
+% ======================================================================
+\section{Download Commands}
+% ======================================================================
+
+Discovery and download are deliberately separate. You discover first, then decide what to download.
+
+\subsection{\texttt{download plan} --- Preview Without Downloading}
+
+\begin{lstlisting}
+spmkit-data-hunter download plan <campaign-name>
+  --output <path>          Campaign output directory
+  --level gold|silver|bronze  Filter by level (repeatable)
+  --category <name>        Filter by file category (repeatable)
+\end{lstlisting}
+
+Reports record count, file count, known size in GiB, and count of files with unknown sizes. Nothing is downloaded.
+
+\subsection{\texttt{download run} --- Execute Downloads}
+
+\begin{lstlisting}
+spmkit-data-hunter download run <campaign-name>
+  --output <path>          Campaign output directory
+  --level gold|silver|bronze  Filter by level (repeatable)
+  --category <name>        Filter by category (repeatable)
+  --max-file-gb <n>        Per-file size limit (default: 2.0)
+  --max-record-gb <n>      Per-record total size limit (default: 10.0)
+  --accept-unbounded-downloads  Allow unlimited sizes
+  --inspect-archives       List archive contents without extraction
+  --rate-seconds <n>       Delay between downloads (default: 1.05)
+  --timeout <n>            HTTP timeout (default: 120.0)
+\end{lstlisting}
+
+Downloads are resumable: already-downloaded files with matching checksums are skipped. Repository checksums (MD5) and local SHA-256 are recorded.
+
+\bigskip
+{\warnbox{\textbf{Warning:} Unbounded downloads require \texttt{--accept-unbounded-downloads}. This is a deliberate safety acknowledgment, not a scientific filter.}}
+
+% ======================================================================
+\section{Campaign Workflow --- Step by Step}
+% ======================================================================
+
+\begin{enumerate}[nosep]
+  \item \textbf{Create:}
+\begin{lstlisting}
+spmkit-data-hunter campaign create afm-scan \
+  --preset all --source all \
+  --max-runtime 2h --max-records 0 \
+  --output spm_benchmarks
+\end{lstlisting}
+
+  \item \textbf{Run:}
+\begin{lstlisting}
+spmkit-data-hunter campaign run afm-scan --output spm_benchmarks
+\end{lstlisting}
+
+  \item \textbf{Check progress} (from another terminal):
+\begin{lstlisting}
+spmkit-data-hunter campaign status afm-scan
+spmkit-data-hunter campaign list
+\end{lstlisting}
+
+  \item \textbf{Pause, resume, or stop:}
+\begin{lstlisting}
+spmkit-data-hunter campaign pause afm-scan
+spmkit-data-hunter campaign resume afm-scan
+spmkit-data-hunter campaign stop afm-scan
+\end{lstlisting}
+
+  \item \textbf{Verify} remote file reachability:
+\begin{lstlisting}
+spmkit-data-hunter campaign verify afm-scan
+\end{lstlisting}
+
+  \item \textbf{Export} results:
+\begin{lstlisting}
+spmkit-data-hunter campaign export afm-scan
+\end{lstlisting}
+
+  \item \textbf{Plan} downloads:
+\begin{lstlisting}
+spmkit-data-hunter download plan afm-scan \
+  --level gold silver --category raw processed
+\end{lstlisting}
+
+  \item \textbf{Execute} downloads:
+\begin{lstlisting}
+spmkit-data-hunter download run afm-scan \
+  --level gold silver \
+  --category raw processed code \
+  --max-file-gb 2 --max-record-gb 20 \
+  --inspect-archives
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Campaign Lifecycle Statuses}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Status} & \textbf{Meaning} \\
+\midrule
+\texttt{created} & Configuration frozen, not yet executed \\
+\texttt{running} & Actively searching and persisting \\
+\texttt{paused} & Interrupted via Ctrl+C or pause request \\
+\texttt{stopped} & Interrupted via stop request \\
+\texttt{completed} & All partitions exhausted with no errors \\
+\texttt{completed\_with\_errors} & All exhausted, some recoverable errors \\
+\texttt{failed} & Unrecoverable error \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+{\tipbox{\textbf{Tip:} A campaign can be resumed from \texttt{paused} or \texttt{stopped}. Checkpoints are page-granular. A resumed campaign skips exhausted partitions and retries failed ones.}}
+
+% ======================================================================
+\section{Query Presets}
+% ======================================================================
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Preset} & \textbf{Scope} & \textbf{Queries} \\
+\midrule
+\texttt{all} & Broad AFM/SPM discovery & 8 \\
+\texttt{topography} & Height maps, profiles, roughness & 4 \\
+\texttt{force} & Force curves, calibration, adhesion & 4 \\
+\texttt{kpfm} & Surface potential, Kelvin probe & 3 \\
+\texttt{grains} & Segmentation, particles, grain analysis & 3 \\
+\texttt{resonance} & Cantilever thermal tune, resonance & 3 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Usage Examples}
+
+\begin{lstlisting}
+# Single preset
+spmkit-data-hunter campaign create fc --preset force --source all
+
+# Combine presets
+spmkit-data-hunter campaign create multi --preset force --preset kpfm --source all
+
+# Presets + custom queries
+spmkit-data-hunter campaign create custom \
+  --preset force \
+  --query "single molecule force spectroscopy raw processed" \
+  --source all
+\end{lstlisting}
+
+Custom queries are appended to preset queries and deduplicated. If no preset or custom query is provided, the \texttt{all} preset is used.
+
+% ======================================================================
+\section{Data Sources}
+% ======================================================================
+
+\begin{center}
+\begin{tabular}{llllll}
+\toprule
+\textbf{Source} & \textbf{API} & \textbf{Role} & \textbf{Files} & \textbf{Resume} & \textbf{Auth} \\
+\midrule
+Zenodo & \texttt{api.zenodo.org} & Direct repo & Yes & Page & Optional \\
+Figshare & \texttt{api.figshare.com/v2} & Direct repo & Yes & Page & Optional \\
+DataCite & \texttt{api.datacite.org} & Meta-index & Usually no & Cursor & Not req. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+DataCite records are valuable for DOI discovery and publication linkage but typically lack file inventories — they are metadata evidence, not benchmark packages.
+
+\textbf{Planned adapters:} OSF, Dataverse, Dryad, InvenioRDM, DSpace 7.
+
+Each source adapter follows strict rules: cursors advance only after full page commit; failed partitions are never marked exhausted; replaying a page is safe (idempotent writes); source adapters fetch metadata only, never download dataset files directly.
+
+% ======================================================================
+\section{Output Structure}
+% ======================================================================
+
+\begin{lstlisting}
+spm_benchmarks/
+  catalog.sqlite3          Normalized records, file inventories, scores
+  campaigns.sqlite3         Campaign configs, checkpoints, events, stats
+  catalog.json              JSON export
+  catalog.jsonl             JSON Lines export
+  catalog.csv               CSV export
+  REPORT.md                 Markdown report
+  datasets/                 Downloaded files organized by record
+\end{lstlisting}
+
+\begin{itemize}[nosep]
+  \item \texttt{catalog.sqlite3} — source of truth for discovered records and file inventories.
+  \item \texttt{campaigns.sqlite3} — source of truth for campaign state (campaigns, checkpoints, campaign\_records, events audit log).
+  \item Export files are views — regenerate anytime with \texttt{campaign export}.
+  \item Both databases use WAL journal mode. Stop the process before copying database files.
+\end{itemize}
+
+% ======================================================================
+\section{Validation Philosophy}
+% ======================================================================
+
+This section is essential reading before using discovered data for scientific validation.
+
+\begin{itemize}[nosep]
+  \item \textbf{Discovery is not validation} — results are candidates, not benchmarks. A human must verify instrument conditions, calibration, method, units, and software versions.
+  \item \textbf{Raw-only files are reader fixtures} — a \texttt{.nid} file can test a parser, not an algorithm.
+  \item \textbf{Processed values are references, not absolute truth} — without documented units, calibration, and parameters, they are weak references.
+  \item \textbf{Gwyddion is a reference, not an oracle} — version, parameters, and operation order must be recorded.
+\end{itemize}
+
+\textbf{Data Hunter guarantees:} structured discovery, classification, provenance linking, file reachability verification.
+
+\textbf{Data Hunter does NOT guarantee:} scientific correctness certification, automated benchmark validation, ground truth declarations.
+
+Read the full doctrine in \texttt{SCIENTIFIC\_DATA\_HUNTING\_BIBLE.md}.
+
+\bigskip
+{\warnbox{\textbf{Before reusing a dataset:} (1) read its license, (2) cite the version DOI, (3) do not redistribute restricted files, (4) preserve checksums and provenance, (5) record processing parameters, (6) consult an AFM/SPM practitioner.}}
+
+% ======================================================================
+\section{Development}
+% ======================================================================
+
+\begin{lstlisting}
+pip install -e ".[dev]"
+pytest                       # 53 tests
+ruff check .
+ruff format --check .
+spmkit-data-hunter --self-test
+\end{lstlisting}
+
+\subsection*{Project Structure}
+
+\begin{lstlisting}
+src/spmkit_data_hunter/
+  __init__.py          Package exports
+  __main__.py           python -m entry point
+  cli.py                Unified command-line interface
+  campaigns.py          Campaign model and SQLite store
+  catalog_io.py         Record reconstruction from catalog
+  engine.py             Campaign execution orchestration
+  legacy.py             Models, classification, scoring, downloads
+  sources.py            Paged source adapters
+  verification.py       Lightweight remote file probes
+  version.py            Version string
+\end{lstlisting}
+
+Every real false positive or API edge case should become a regression test.
+
+% ======================================================================
+\section{Troubleshooting}
+% ======================================================================
+
+\begin{center}
+\begin{tabular}{p{4.5cm}p{9cm}}
+\toprule
+\textbf{Problem} & \textbf{Solution} \\
+\midrule
+Campaign won't start & Check it was created (\texttt{campaign list}), verify output directory, run \texttt{doctor}. \\
+Unbounded downloads error & Pass \texttt{--accept-unbounded-downloads} to confirm. \\
+Network errors & Engine catches exceptions per partition and continues. Retries on resume. \\
+Campaign appears stuck & Check heartbeat (\texttt{campaign status}). Reduce \texttt{--rate-seconds}. \\
+Corrupted downloads & Check checksums in catalog. Delete file and re-download. \\
+SQLite database locked & Ensure one process per output directory. WAL recovery is automatic. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Inspecting campaign events directly:
+
+\begin{lstlisting}
+sqlite3 spm_benchmarks/campaigns.sqlite3 \
+  "SELECT timestamp, level, event_type, message
+   FROM events ORDER BY id DESC LIMIT 20;"
+\end{lstlisting}
+
+% ======================================================================
+\section{Relationship to SPM-Kit}
+% ======================================================================
+
+SPM-Kit Data Hunter is a companion project for \textbf{SPM-Kit} (\url{https://github.com/kegouro/spmkit}), an open-source AFM/SPM analysis toolkit.
+
+\begin{itemize}[nosep]
+  \item \textbf{SPM-Kit} performs AFM analysis: loading native formats, processing images, fitting force curves.
+  \item \textbf{Data Hunter} discovers and curates public material for reader tests, cross-checks, and validation manifests.
+  \item Data Hunter does \textbf{not} perform AFM analysis. SPM-Kit does \textbf{not} perform dataset discovery.
+\end{itemize}
+
+Together, they aim to make AFM/SPM software validation more reproducible, transparent, and data-driven.
+
+% ======================================================================
+\section*{Appendix A: Quick Reference Card}
+% ======================================================================
+
+\begin{lstlisting}
+# Create and run
+spmkit-data-hunter campaign create NAME --preset all --source all --max-runtime 2h --max-records 0
+spmkit-data-hunter campaign run NAME
+
+# Manage
+spmkit-data-hunter campaign status NAME
+spmkit-data-hunter campaign pause NAME
+spmkit-data-hunter campaign resume NAME
+spmkit-data-hunter campaign stop NAME
+
+# Verify and export
+spmkit-data-hunter campaign verify NAME
+spmkit-data-hunter campaign export NAME
+
+# Download
+spmkit-data-hunter download plan NAME --level gold silver
+spmkit-data-hunter download run NAME --level gold --category raw processed
+
+# Inspect
+spmkit-data-hunter doctor
+spmkit-data-hunter sources list
+\end{lstlisting}
+
+% ======================================================================
+\section*{Appendix B: Environment Variables}
+% ======================================================================
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Variable} & \textbf{Purpose} & \textbf{Required} \\
+\midrule
+\texttt{GITHUB\_TOKEN} & GitHub API authentication & No \\
+\texttt{ZENODO\_TOKEN} & Zenodo API authentication & No \\
+\texttt{FIGSHARE\_TOKEN} & Figshare API authentication & No \\
+\texttt{OSF\_TOKEN} & OSF API (future) & No \\
+\texttt{DATAVERSE\_TOKEN} & Dataverse API (future) & No \\
+\texttt{DRYAD\_TOKEN} & Dryad API (future) & No \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ======================================================================
+\section*{Appendix C: Verification Status Codes}
+% ======================================================================
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Status} & \textbf{Meaning} \\
+\midrule
+\texttt{not\_checked} & Default; no probe attempted \\
+\texttt{reachable} & Remote object responded to HEAD or range request \\
+\texttt{rejected\_url} & URL is not an allowed public HTTPS URL \\
+\texttt{rejected\_redirect} & Redirect resolved to disallowed destination \\
+\texttt{empty} & Remote object reports zero bytes \\
+\texttt{size\_mismatch} & Repository metadata size differs from remote size \\
+\texttt{failed} & Request failed (timeout, DNS, connection refused) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{16pt}
+\begin{center}
+\rule{0.4\textwidth}{0.4pt}\\[6pt]
+\textit{SPM-Kit Data Hunter v2.2.0 --- MIT License}\\[2pt]
+\textit{\url{https://github.com/kegouro/spmkit-data-hunter}}
+\end{center}
+
+\end{document}
