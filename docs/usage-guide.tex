@@ -213,15 +213,15 @@ Records that fail the gate receive capped scores and cannot be Gold or Silver.
 Every record receives one of \textbf{seven utility classes}. This is the most important classification.
 
 \begin{center}
-\begin{tabularx}{\linewidth}{l>{\RaggedRight}p{5cm}>{\RaggedRight}X}
+\begin{tabularx}{\linewidth}{l>{\RaggedRight\arraybackslash}p{5cm}>{\RaggedRight\arraybackslash}X}
 \toprule
 \textbf{Class} & \textbf{Criteria} & \textbf{Valid Use} \\
 \midrule
 \texttt{benchmark\_ready} & Distinct raw + processed assets + method/code & Analysis validation candidate (human review required) \\
 \texttt{crosscheck\_candidate} & Distinct raw + processed, incomplete method/code & Preliminary comparison, manual follow-up \\
 \texttt{reader\_fixture} & Raw/native data, no processed reference & Reader, parser, channel, robustness tests \\
-\texttt{processed\_ref\_only} & Processed output, no recoverable raw input & Numerical context, format examples \\
-\texttt{documentation\_only} & Paper, script without usable data & Query expansion, provenance discovery \\
+\texttt{processed\_reference\_only} & Processed output, no recoverable raw input & Numerical context, format examples \\
+\texttt{documentation\_only} & Paper, script without usable data & Query expansion, provenance \\
 \texttt{incomplete} & Insufficient or ambiguous evidence & Manual triage, query refinement \\
 \texttt{rejected} & Corrupt, empty, unsafe, irrelevant & None without resolving the issue \\
 \bottomrule
@@ -404,6 +404,8 @@ spmkit-data-hunter download plan <campaign-name>
 \end{lstlisting}
 
 Reports record count, file count, known size in GiB, and count of files with unknown sizes. Nothing is downloaded.
+
+\newpage
 
 \subsection{\texttt{download run} --- Execute Downloads}
 
