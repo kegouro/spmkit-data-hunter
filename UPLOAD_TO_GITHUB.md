@@ -1,108 +1,71 @@
-# Cómo publicar este repositorio en GitHub
+# Release and upload checklist
 
-Nombre recomendado:
+The project already contains GitHub-ready metadata, CI, issue templates,
+documentation, and package configuration.
 
-```text
-spmkit-data-hunter
-```
-
-Descripción recomendada:
-
-```text
-Discover and curate public AFM/SPM datasets for reproducible scientific software validation.
-```
-
-Temas recomendados:
-
-```text
-afm
-spm
-kpfm
-force-spectroscopy
-scientific-python
-open-data
-research-software
-dataset-discovery
-```
-
-## Opción A: desde la Terminal
-
-### 1. Descomprime el ZIP y entra a la carpeta
+## Verify locally
 
 ```bash
-cd ~/Downloads/spmkit-data-hunter
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e ".[dev]"
+python3 -m pytest
+python3 -m ruff check .
+python3 -m ruff format --check .
+spmkit-data-hunter --self-test
+spmkit-data-hunter doctor
 ```
 
-Ajusta la ruta según dónde hayas descomprimido el archivo.
-
-### 2. Comprueba que funciona
+## Inspect the diff
 
 ```bash
-python3 src/spmkit_data_hunter.py --self-test
+git status --short
+git diff --stat
+git diff
 ```
 
-### 3. Crea el repositorio vacío en GitHub
+Do not commit:
 
-En GitHub:
+- `spm_benchmarks/`;
+- downloaded datasets;
+- `.env` files;
+- tokens;
+- `.DS_Store`;
+- SQLite `-wal` or `-shm` files;
+- caches and virtual environments.
 
-1. Pulsa `+`.
-2. Selecciona `New repository`.
-3. Escribe `spmkit-data-hunter`.
-4. Elige `Public`.
-5. No agregues README, `.gitignore` ni licencia, porque ya vienen incluidos.
-6. Pulsa `Create repository`.
-
-### 4. Inicializa Git y sube todo
+## Suggested commit
 
 ```bash
-git init
 git add .
-git commit -m "Initial release of SPM-Kit Data Hunter v2.0.0"
-git branch -M main
-git remote add origin https://github.com/kegouro/spmkit-data-hunter.git
-git push -u origin main
+git commit -m "Add resumable scientific data hunting campaigns"
+git push origin main
 ```
 
-GitHub puede pedirte iniciar sesión en el navegador o autenticarte con un token.
+Review the CI result before creating a release.
 
-## Opción B: con GitHub Desktop
-
-1. Descomprime el ZIP.
-2. Abre GitHub Desktop.
-3. Selecciona `File` → `Add Local Repository`.
-4. Escoge la carpeta `spmkit-data-hunter`.
-5. Si Git todavía no está inicializado, créalo desde la aplicación.
-6. Haz el commit inicial.
-7. Pulsa `Publish repository`.
-8. Usa el nombre `spmkit-data-hunter` y déjalo público.
-
-## Después de subirlo
-
-1. Revisa que la acción `CI` aparezca en verde.
-2. En `About`, agrega la descripción y los topics sugeridos.
-3. Activa `Issues`.
-4. Crea una release llamada `v2.0.0`.
-5. Adjunta el ZIP solo como comodidad. El código principal debe vivir en los commits.
-6. No subas carpetas `spm_benchmarks/`, `datasets/` ni archivos descargados.
-
-## Release recomendada
+## Suggested release
 
 Tag:
 
 ```text
-v2.0.0
+v2.2.0
 ```
 
-Título:
+Title:
 
 ```text
-SPM-Kit Data Hunter v2.0.0
+SPM-Kit Data Hunter v2.2.0: resumable campaign engine
 ```
 
-Texto:
+Highlights:
 
-```text
-First public release of SPM-Kit Data Hunter.
-
-This release transforms the original dataset downloader into a validation-oriented benchmark curator. It discovers public AFM/SPM records through official Zenodo and Figshare APIs, classifies evidence, ranks candidates as Gold/Silver/Bronze, exports reproducible catalogs, and supports resumable checksum-verified downloads.
-```
+- deep page/cursor search without small hidden limits;
+- durable campaign checkpoints;
+- pause, resume, stop, heartbeat, and export;
+- Zenodo, Figshare, and DataCite adapters;
+- scientific utility classes;
+- remote file probes;
+- stronger archive inventory;
+- package architecture with legacy CLI compatibility;
+- the Scientific Data Hunting Bible.

@@ -1,0 +1,25 @@
+{
+  "project": "spmkit-data-hunter",
+  "version": "2.0.0",
+  "created": "2026-07-13",
+  "entry_point": "spmkit-data-hunter",
+  "python": ">=3.11",
+  "files": [
+    ".github/ISSUE_TEMPLATE/bug_report.md",
+    ".github/ISSUE_TEMPLATE/dataset_candidate.md",
+    ".github/workflows/ci.yml",
+    ".gitignore",
+    "CHANGELOG.md",
+    "CITATION.cff",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "README.md",
+    "UPLOAD_TO_GITHUB.md",
+    "examples/queries.txt",
+    "pyproject.toml",
+    "requirements-dev.txt",
+    "requirements.txt",
+    "src/spmkit_data_hunter.py",
+    "tests/test_core.py"
+  ]
+}

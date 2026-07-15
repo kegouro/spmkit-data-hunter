@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spmkit-data-hunter"
-version = "2.2.0"
+version = "2.1.0"
 description = "Discover and curate public AFM/SPM datasets for scientific software validation."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -50,16 +50,13 @@ Homepage = "https://github.com/kegouro/spmkit-data-hunter"
 Repository = "https://github.com/kegouro/spmkit-data-hunter"
 Issues = "https://github.com/kegouro/spmkit-data-hunter/issues"
 "Related project" = "https://github.com/kegouro/spmkit"
-Documentation = "https://github.com/kegouro/spmkit-data-hunter/blob/main/SCIENTIFIC_DATA_HUNTING_BIBLE.md"
 
 [project.scripts]
-spmkit-data-hunter = "spmkit_data_hunter.cli:main"
+spmkit-data-hunter = "spmkit_data_hunter:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
+py-modules = ["spmkit_data_hunter"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

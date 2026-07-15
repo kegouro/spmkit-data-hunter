@@ -1,0 +1,10 @@
+# One query per line. Copy useful lines into repeated --query arguments.
+
+AFM raw processed data
+atomic force microscopy source data analysis script
+force spectroscopy raw curves processed results
+KPFM raw processed data
+AFM raw data Gwyddion processed
+AFM calibration results dataset
+TopoStats raw data results
+cantilever thermal tune raw data fit

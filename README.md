@@ -4,81 +4,63 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-**SPM-Kit Data Hunter** discovers, ranks, catalogs, and optionally downloads public AFM/SPM datasets suitable for scientific software validation.
+**SPM-Kit Data Hunter** discovers, inventories, ranks, and selectively downloads
+public AFM/SPM evidence for scientific software validation.
 
-Instead of collecting isolated microscopy files, it searches for **chains of evidence**:
+It searches for more than isolated microscopy files. The target is a traceable
+chain:
 
-> raw instrument data → processing method or code → processed results → related publication
+> native instrument data → method or code → processed result → publication
 
-The project uses official repository APIs and does not scrape commercial websites.
+Data Hunter uses public repository APIs. It is not a commercial-site scraper,
+and it does not claim that a high score establishes scientific ground truth.
 
-## Why it exists
+## Why this exists
 
-Scientific validation needs more than a raw file. A useful benchmark should ideally include:
+AFM/SPM validation material is fragmented across repositories, supplementary
+files, instrument-specific formats, papers, scripts, and processed exports. A
+raw file may test a reader but cannot by itself validate a roughness algorithm,
+force-curve fit, or physical model.
 
-- native AFM/SPM data;
-- processed exports or reported numerical results;
-- scripts, notebooks, or a documented workflow;
-- calibration and method information;
-- a DOI, license, and related publication.
+Data Hunter preserves those distinctions and records what each dataset can
+actually support.
 
-Data Hunter detects these signals and ranks candidate records as:
+## Scientific utility classes
 
-| Level | Meaning |
+| Utility class | Meaning |
 |---|---|
-| **Gold** | Domain-relevant, raw data plus processed results and code or documentation |
-| **Silver** | Domain-relevant, raw data plus at least one strong validation companion |
-| **Bronze** | Not domain-relevant, or relevant but incomplete |
+| `benchmark_ready` | Distinct raw and processed/reference assets plus method or code evidence |
+| `crosscheck_candidate` | Raw and processed/reference assets, but incomplete method/code context |
+| `reader_fixture` | Native/raw file useful for I/O and robustness testing, without an independent processed reference |
+| `processed_reference_only` | Processed output or reported values without recoverable raw input |
+| `documentation_only` | Paper, method, script, or README without usable data assets |
+| `incomplete` | Evidence is insufficient or ambiguous |
+| `rejected` | Empty, corrupt, unsafe, irrelevant, inaccessible, or unusable for the intended workflow |
 
-> **Important**: Gold and Silver now require passing the **domain relevance gate**
-> (see below). A well-documented ecology or oceanography dataset will remain Bronze
-> even with raw data, processed results, code, and documentation.
-
-The score is a discovery heuristic, not a scientific quality judgment. Every selected dataset should still be reviewed by a domain expert before being used as ground truth.
-
-### Domain relevance vs benchmark evidence
-
-Data Hunter now separates two distinct questions:
-
-1. **Domain relevance** – Does this record actually belong to AFM/SPM?
-2. **Benchmark evidence** – If it belongs, how complete is its validation chain?
-
-The domain relevance gate defines a set of deterministic, auditable rules. A record passes when it shows:
-
-- An explicit microscopy phrase ("atomic force microscopy", "Kelvin probe force microscopy", etc.), **or**
-- A native SPM file format (`.nid`, `.jpk-force`, `.gwy`, `.spm`, `.ibw`, etc.), **or**
-- At least two independent contextual signals (e.g., `AFM` + `Gwyddion`, `cantilever` + `force curve`, `KPFM` + `surface potential`).
-
-A single isolated `AFM` or `SPM` term is deliberately not enough. Well-documented datasets from unrelated disciplines will show clearly why they failed the gate.
-
-New fields in all outputs:
-
-| Field | Type | Meaning |
-|---|---|---|
-| `score` | int | Final score (capped at 39 if not domain-relevant) |
-| `benchmark_score` | int | Quality of evidence chain (0–100) |
-| `relevance_score` | int | AFM/SPM domain signal strength (0–100) |
-| `domain_relevant` | bool | Whether the record passed the domain gate |
+Gold, Silver, and Bronze remain compact heuristic labels. They are secondary to
+the utility class.
 
 ## Features
 
-- Searches **Zenodo** and **Figshare** through their official APIs.
-- Query presets for topography, force spectroscopy, KPFM, grain analysis, and resonance.
-- Detects native SPM formats such as `.nid`, `.nhf`, `.gwy`, `.jpk-force`, `.spm`, `.ibw`, `.mtrx`, and `.sxm`.
-- Separates files into `raw`, `processed`, `code`, `documentation`, `archive`, and `image`.
-- Generates a 0–100 benchmark score, relevance score, and Gold/Silver/Bronze label.
-- Deduplicates records by DOI. Domain-relevant records are preferred during merging.
-- Stores a persistent **SQLite catalog**.
-- Exports JSON, JSONL, CSV, and a readable Markdown report.
-- Supports resumable downloads with `.part` files.
-- Verifies checksums when repositories provide them.
-- Applies per-file and per-record size limits.
-- Can inventory ZIP and TAR contents without extracting them.
-- Includes an offline self-test.
+- Deep, resumable campaigns with durable SQLite checkpoints.
+- Searches Zenodo and Figshare through public APIs.
+- Uses DataCite as a metadata discovery index.
+- No hidden 20/25/30-record campaign limit.
+- Run by time, record budget, or until configured partitions are exhausted.
+- Safe pause with `Ctrl+C` or a second terminal.
+- Persistent heartbeat, page, record, duplicate, file, and error counters.
+- Enumerates every file exposed by direct repository records.
+- Token-aware filename classification that avoids substring traps such as
+  `drawings.csv → raw`.
+- Distinguishes raw-only reader fixtures from analysis benchmarks.
+- Persistent catalog with JSON, JSONL, CSV, Markdown, and SQLite outputs.
+- Selective, resumable downloads with repository checksum support and local SHA-256.
+- Archive inventory without extraction.
+- Backward-compatible flag-only CLI.
+- Offline tests for classification, pagination, cursor resume, campaigns,
+  migration, and pause semantics.
 
 ## Installation
-
-### From the repository
 
 ```bash
 git clone https://github.com/kegouro/spmkit-data-hunter.git
@@ -86,136 +68,239 @@ cd spmkit-data-hunter
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
-python3 -m pip install -e .
+python3 -m pip install -e ".[dev]"
 ```
 
-On Windows PowerShell, activate the environment with:
+Windows PowerShell:
 
 ```powershell
 .venv\Scripts\Activate.ps1
 ```
 
-## Quick start
-
-Run the internal tests:
+## Inspect the installation
 
 ```bash
-spmkit-data-hunter --self-test
+spmkit-data-hunter doctor
+spmkit-data-hunter sources list
+python3 -m pytest
+python3 -m ruff check .
 ```
 
-Discover and rank candidates without downloading anything:
+`doctor` reports whether optional credential variables exist, but never prints
+their values.
+
+## Recommended workflow: campaigns
+
+### One-hour broad search
 
 ```bash
-spmkit-data-hunter --preset all --limit 20 --top 30
+spmkit-data-hunter campaign create afm-one-hour \
+  --preset all \
+  --source all \
+  --max-runtime 1h \
+  --max-records 0 \
+  --output spm_benchmarks
+
+spmkit-data-hunter campaign run afm-one-hour \
+  --output spm_benchmarks
 ```
 
-Search for force-spectroscopy benchmarks:
+The campaign stops at a safe page checkpoint when its runtime budget is reached.
+Resume it later:
 
 ```bash
-spmkit-data-hunter --preset force --limit 30 --top 40
+spmkit-data-hunter campaign resume afm-one-hour \
+  --output spm_benchmarks
 ```
 
-Download only Gold and Silver candidates:
+### Search until exhaustion
+
+```bash
+spmkit-data-hunter campaign create afm-deep \
+  --preset all \
+  --source all \
+  --max-runtime 0 \
+  --max-records 0
+
+spmkit-data-hunter campaign run afm-deep
+```
+
+`0` means no user-selected functional limit. API rate limits, HTTP timeouts,
+filesystem limits, path protections, and archive protections still apply.
+
+### Status, pause, and stop
+
+```bash
+spmkit-data-hunter campaign status afm-deep
+spmkit-data-hunter campaign pause afm-deep
+spmkit-data-hunter campaign resume afm-deep
+spmkit-data-hunter campaign stop afm-deep
+spmkit-data-hunter campaign list
+```
+
+A campaign checkpoint advances only after the entire page is committed. Replayed
+pages are safe because catalog writes are idempotent.
+
+### Probe remote files without downloading them fully
+
+```bash
+spmkit-data-hunter campaign verify afm-deep
+```
+
+The verifier uses HEAD or a one-byte range request to detect inaccessible, empty,
+redirected, and obvious size-mismatch cases. It does not prove that scientific
+content is correct and does not replace checksum verification after download.
+
+### Export a campaign
+
+```bash
+spmkit-data-hunter campaign export afm-deep
+```
+
+## Download workflow
+
+Discovery and download are deliberately separate.
+
+### Plan first
+
+```bash
+spmkit-data-hunter download plan afm-deep \
+  --level gold \
+  --level silver \
+  --category raw \
+  --category processed \
+  --category documentation
+```
+
+The plan reports records, files, known bytes, and files with unknown sizes.
+
+### Download with limits
+
+```bash
+spmkit-data-hunter download run afm-deep \
+  --level gold \
+  --level silver \
+  --max-file-gb 4 \
+  --max-record-gb 20 \
+  --inspect-archives
+```
+
+### Explicit unbounded download
+
+```bash
+spmkit-data-hunter download run afm-deep \
+  --max-file-gb 0 \
+  --max-record-gb 0 \
+  --accept-unbounded-downloads
+```
+
+The acknowledgement disables user-selected size ceilings, not integrity or
+security checks.
+
+## Legacy CLI
+
+Existing flag-only commands remain valid. In legacy mode, `--limit 0` now means
+search until the source returns no more results.
 
 ```bash
 spmkit-data-hunter \
   --preset force \
-  --levels gold silver \
-  --download \
-  --inspect-archives \
-  --max-file-mb 1500 \
-  --max-record-gb 8
-```
-
-Search with custom queries:
-
-```bash
-spmkit-data-hunter \
-  --query "AFM raw processed data" \
-  --query "atomic force microscopy source data analysis script" \
   --source all \
+  --limit 0 \
   --top 50
 ```
 
-Require a recognizable open license:
-
-```bash
-spmkit-data-hunter \
-  --preset topography \
-  --require-open-license
-```
-
-## Output
-
-By default, Data Hunter creates `spm_benchmarks/`:
-
-```text
-spm_benchmarks/
-├── catalog.csv
-├── catalog.json
-├── catalog.jsonl
-├── catalog.sqlite3
-├── REPORT.md
-└── datasets/
-```
-
-`REPORT.md` is the best place to review candidates before enabling downloads.
-
-Each downloaded dataset receives:
-
-```text
-dataset_folder/
-├── metadata.json
-├── WHY_THIS_DATASET.md
-├── archive_inventory.json   # when requested and applicable
-└── downloaded files
-```
+For long or interruptible runs, campaigns are strongly preferred because legacy
+mode does not persist page checkpoints.
 
 ## Query presets
 
 | Preset | Intended use |
 |---|---|
-| `all` | Broad AFM/SPM benchmark discovery |
-| `topography` | Height maps, profiles, roughness, Gwyddion comparisons |
-| `force` | Force curves, calibration, adhesion, modulus |
+| `all` | Broad AFM/SPM discovery |
+| `topography` | Height maps, profiles, roughness, and Gwyddion comparisons |
+| `force` | Force curves, calibration, adhesion, modulus, WLC/FJC evidence |
 | `kpfm` | Surface potential and Kelvin probe datasets |
-| `grains` | Segmentation, particle and grain analysis |
+| `grains` | Segmentation, particles, and grain analysis |
 | `resonance` | Cantilever thermal tune and resonance fitting |
 
-Presets may be repeated and combined with custom queries.
+Presets can be repeated and combined with custom queries:
 
-## Responsible use
+```bash
+spmkit-data-hunter campaign create custom \
+  --preset force \
+  --query 'single molecule force spectroscopy raw processed' \
+  --query 'JPK force curve analysis notebook'
+```
 
-Data Hunter searches public APIs and deliberately rate-limits requests. Downloaded data remain subject to each record's license and terms.
+## Supported sources
 
-Before reusing a dataset:
+| Source | Role | File inventory | Checkpoint |
+|---|---|---:|---|
+| Zenodo | Direct repository | Yes | Page |
+| Figshare | Direct repository | Yes | Page |
+| DataCite | Metadata index | Usually no | Cursor |
 
-1. Read the repository metadata and license.
-2. Cite the dataset DOI and associated publication.
-3. Do not redistribute files whose license forbids redistribution.
-4. Treat published processed values as **reference results**, not unquestionable ground truth.
-5. Record all processing parameters used in comparisons.
-6. Ask an AFM/SPM practitioner to review instrument-specific assumptions.
+DataCite records are retained as metadata evidence and are not misrepresented as
+fully hydrated benchmark packages.
 
-Never commit downloaded datasets, credentials, API tokens, or private laboratory data to this repository.
+Planned adapters include OSF, Dataverse, Dryad, generic InvenioRDM, and DSpace 7.
+See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+## Output
+
+```text
+spm_benchmarks/
+├── catalog.sqlite3
+├── campaigns.sqlite3
+├── catalog.json
+├── catalog.jsonl
+├── catalog.csv
+├── REPORT.md
+└── datasets/
+```
+
+- `catalog.sqlite3` stores normalized records and file inventories.
+- `campaigns.sqlite3` stores campaign configuration, checkpoints, events, and
+  progress.
+- Export files are views and can be regenerated.
 
 ## Validation philosophy
 
-The strongest comparison unit is not a single file. It is a reproducible chain:
+A raw file alone can validate reader behavior, file parsing, channel presence,
+orientation, and robustness. It cannot demonstrate that an analysis algorithm
+reproduces an independent result.
 
-```text
-native input
-    ↓
-documented preprocessing and calibration
-    ↓
-reference numerical output
-    ↓
-SPM-Kit result
-    ↓
-difference, tolerance, and explanation
-```
+Gwyddion can be an excellent independent reference for many image-processing
+operations when version, units, parameters, and operation order are recorded.
+It should not be treated as an automatic oracle for every force-spectroscopy or
+instrument-calibration workflow.
 
-Differences can arise from a software defect, unequal parameters, format conventions, orientation choices, calibration, or genuinely different numerical methods. Data Hunter helps locate evidence; it does not replace scientific interpretation.
+Read the full doctrine in:
+
+### [The Scientific Data Hunting Bible](SCIENTIFIC_DATA_HUNTING_BIBLE.md)
+
+Supporting documents:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/VALIDATION_TAXONOMY.md`](docs/VALIDATION_TAXONOMY.md)
+- [`docs/SOURCE_ADAPTER_GUIDE.md`](docs/SOURCE_ADAPTER_GUIDE.md)
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+- [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
+
+## Responsible use
+
+Before reusing a dataset:
+
+1. Read its repository metadata and license.
+2. Cite the version DOI and related publication.
+3. Do not redistribute files when the license forbids it.
+4. Preserve checksums and provenance.
+5. Record processing parameters used for comparison.
+6. Ask an AFM/SPM practitioner to review instrument-specific assumptions.
+
+Never commit downloaded datasets, access tokens, cookies, private laboratory
+data, or generated SQLite WAL files.
 
 ## Development
 
@@ -226,24 +311,15 @@ python3 -m ruff check .
 python3 -m ruff format --check .
 ```
 
-The CLI also contains its own dependency-light smoke test:
-
-```bash
-python3 src/spmkit_data_hunter.py --self-test
-```
-
-## Roadmap
-
-- Support additional public repositories through official APIs.
-- Inspect supported archive manifests before full dataset download.
-- Add optional metadata extraction for papers and supplementary files.
-- Export benchmark manifests consumable directly by SPM-Kit tests.
-- Add human-reviewed benchmark annotations.
-- Track comparison provenance and tolerances.
+Every real false positive or failed API edge case should become a regression
+test.
 
 ## Relationship to SPM-Kit
 
-Data Hunter is a companion project for [SPM-Kit](https://github.com/kegouro/spmkit). It does not perform AFM analysis itself. It discovers and organizes public material that may be suitable for validating SPM-Kit readers and analysis functions.
+Data Hunter is a companion project for
+[SPM-Kit](https://github.com/kegouro/spmkit). It discovers and curates public
+material that may support reader tests, cross-checks, and future validation
+manifests. It does not perform AFM analysis itself.
 
 ## Citation
 
@@ -251,4 +327,4 @@ Citation metadata are available in [`CITATION.cff`](CITATION.cff).
 
 ## License
 
-MIT License. See [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE).

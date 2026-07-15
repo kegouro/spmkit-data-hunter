@@ -24,3 +24,5 @@ datasets/
 catalog.sqlite3
 catalog.sqlite3-shm
 catalog.sqlite3-wal
+.mindmap-cache/
+.omo/
