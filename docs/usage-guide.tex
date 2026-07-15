@@ -9,7 +9,9 @@
 \usepackage{fancyhdr}
 \usepackage{xcolor}
 \usepackage{tcolorbox}
+\tcbuselibrary{breakable}
 \usepackage{tabularx}
+\usepackage{ragged2e}
 \usepackage{listings}
 
 \definecolor{codebg}{RGB}{245,245,245}
@@ -26,11 +28,47 @@
   aboveskip=8pt,
   belowskip=8pt,
   breaklines=true,
+  breakatwhitespace=false,
 }
 
-\newtcbox{\infobox}{colback=infocolor,colframe=blue!40,left=8pt,right=8pt,top=6pt,bottom=6pt}
-\newtcbox{\warnbox}{colback=warncolor,colframe=orange!60,left=8pt,right=8pt,top=6pt,bottom=6pt}
-\newtcbox{\tipbox}{colback=tipcolor,colframe=green!50,left=8pt,right=8pt,top=6pt,bottom=6pt}
+\newtcolorbox{infobox}{
+  colback=infocolor,
+  colframe=blue!40,
+  breakable,
+  width=\linewidth,
+  left=8pt,
+  right=8pt,
+  top=6pt,
+  bottom=6pt,
+  before skip=10pt,
+  after skip=10pt,
+}
+
+\newtcolorbox{warnbox}{
+  colback=warncolor,
+  colframe=orange!60,
+  breakable,
+  width=\linewidth,
+  left=8pt,
+  right=8pt,
+  top=6pt,
+  bottom=6pt,
+  before skip=10pt,
+  after skip=10pt,
+}
+
+\newtcolorbox{tipbox}{
+  colback=tipcolor,
+  colframe=green!50,
+  breakable,
+  width=\linewidth,
+  left=8pt,
+  right=8pt,
+  top=6pt,
+  bottom=6pt,
+  before skip=10pt,
+  after skip=10pt,
+}
 
 \hypersetup{
   colorlinks=true,
@@ -67,7 +105,13 @@ MIT License \textbar{} \url{https://github.com/kegouro/spmkit-data-hunter}
 \section{Introduction}
 % ======================================================================
 
-SPM-Kit Data Hunter is a command-line tool that discovers, catalogs, classifies, and selectively downloads public AFM/SPM datasets from scientific repositories. It searches Zenodo, Figshare, and DataCite through official public APIs — not by scraping commercial websites.
+\begin{infobox}
+\textbf{Canonical documentation:} This PDF is a printable companion. The Markdown version at \texttt{docs/usage-guide.md} is the authoritative reference and may contain additional detail. Both are verified against SPM-Kit Data Hunter v2.2.0.
+\end{infobox}
+
+\vspace{8pt}
+
+SPM-Kit Data Hunter is a command-line tool that discovers, catalogs, classifies, and selectively downloads public AFM/SPM datasets from scientific repositories. It searches Zenodo, Figshare, and DataCite through official public APIs --- not by scraping commercial websites.
 
 Its purpose is to find and organize the evidence chains needed to validate scientific software for atomic force microscopy (AFM) and scanning probe microscopy (SPM). A validation chain requires more than isolated files: it needs native instrument data, processing methods or code, processed outputs, and publication context.
 
@@ -76,14 +120,16 @@ Data Hunter does \textbf{not} declare scientific ground truth. It provides struc
 \subsection*{Key Design Principles}
 
 \begin{itemize}[nosep]
-  \item \textbf{Discovery is not validation} — a search result is a candidate, not a benchmark.
+  \item \textbf{Discovery is not validation} --- a search result is a candidate, not a benchmark.
   \item \textbf{Raw-only datasets are reader fixtures}, not analysis validators.
   \item \textbf{Processed reference values are evidence}, not absolute truth.
   \item \textbf{Scientific review remains necessary} before any validation claim.
 \end{itemize}
 
 \bigskip
-{\infobox{\textbf{Note:} Data Hunter is alpha software (v2.2.0). Expect improvements to classification heuristics, source coverage, and format intelligence in future releases.}}
+\begin{infobox}
+\textbf{Note:} Data Hunter is alpha software (v2.2.0). Expect improvements to classification heuristics, source coverage, and format intelligence in future releases.
+\end{infobox}
 
 % ======================================================================
 \section{Installation}
@@ -131,7 +177,9 @@ Development & \texttt{pytest} (testing), \texttt{ruff} (linting/formatting) \\
 \end{tabular}
 
 \bigskip
-{\tipbox{\textbf{Tip:} Optional API tokens (\texttt{ZENODO\_TOKEN}, \texttt{FIGSHARE\_TOKEN}, \texttt{GITHUB\_TOKEN}) may improve rate limits but are not required for public discovery.}}
+\begin{tipbox}
+\textbf{Tip:} Optional API tokens (\texttt{ZENODO\_TOKEN}, \texttt{FIGSHARE\_TOKEN}, \texttt{GITHUB\_TOKEN}) may improve rate limits but are not required for public discovery.
+\end{tipbox}
 
 % ======================================================================
 \section{Core Concepts}
@@ -142,7 +190,7 @@ Development & \texttt{pytest} (testing), \texttt{ruff} (linting/formatting) \\
 Data Hunter scores records by the completeness of their evidence chain:
 
 \begin{center}
-\texttt{native data $\rightarrow$ method/code $\rightarrow$ processed output $\rightarrow$ publication}
+\texttt{native data \quad$\rightarrow$\quad method/code \quad$\rightarrow$\quad processed output \quad$\rightarrow$\quad publication}
 \end{center}
 
 Each link contributes to the benchmark score. A file alone tests a reader; a full chain enables validation.
@@ -162,33 +210,59 @@ Records that fail the gate receive capped scores and cannot be Gold or Silver.
 
 \subsection{Utility Classes}
 
-Every record receives one of \textbf{seven utility classes}. This is the most important classification — it tells you what the record can actually support.
+Every record receives one of \textbf{seven utility classes}. This is the most important classification.
 
 \begin{center}
-\begin{tabular}{p{3.5cm}p{4.8cm}p{5.5cm}}
+\begin{tabularx}{\linewidth}{l>{\RaggedRight}p{5cm}>{\RaggedRight}X}
 \toprule
 \textbf{Class} & \textbf{Criteria} & \textbf{Valid Use} \\
 \midrule
-\texttt{benchmark\_ready} & Distinct raw + processed assets + method/code & Analysis validation candidate (requires human review) \\
+\texttt{benchmark\_ready} & Distinct raw + processed assets + method/code & Analysis validation candidate (human review required) \\
 \texttt{crosscheck\_candidate} & Distinct raw + processed, incomplete method/code & Preliminary comparison, manual follow-up \\
 \texttt{reader\_fixture} & Raw/native data, no processed reference & Reader, parser, channel, robustness tests \\
 \texttt{processed\_ref\_only} & Processed output, no recoverable raw input & Numerical context, format examples \\
-\texttt{documentation\_only} & Paper, script without usable data & Query expansion, provenance \\
+\texttt{documentation\_only} & Paper, script without usable data & Query expansion, provenance discovery \\
 \texttt{incomplete} & Insufficient or ambiguous evidence & Manual triage, query refinement \\
 \texttt{rejected} & Corrupt, empty, unsafe, irrelevant & None without resolving the issue \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
 \subsection{Heuristic Levels: Gold, Silver, Bronze}
 
-Gold, Silver, and Bronze are compact convenience labels that combine benchmark score with utility class. They are \textbf{NOT} declarations of scientific truth. Prefer the utility class for decision-making.
+Gold, Silver, and Bronze are compact convenience labels that combine benchmark score with utility class. They are \textbf{NOT} declarations of scientific truth.
 
 \begin{itemize}[nosep]
-  \item \textbf{Gold} — \texttt{benchmark\_ready} AND score $\ge$ 72.
-  \item \textbf{Silver} — \texttt{benchmark\_ready} or \texttt{crosscheck\_candidate} AND score $\ge$ 48.
-  \item \textbf{Bronze} — everything else.
+  \item \textbf{Gold} --- \texttt{benchmark\_ready} AND score $\ge$ 72.
+  \item \textbf{Silver} --- \texttt{benchmark\_ready} or \texttt{crosscheck\_candidate} AND score $\ge$ 48.
+  \item \textbf{Bronze} --- everything else.
 \end{itemize}
+
+\subsection{Benchmark Score (0--100)}
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+\textbf{Signal} & \textbf{Points} \\
+\midrule
+Raw data detected & +32 \\
+Processed outputs detected & +24 \\
+Code or notebooks detected & +18 \\
+Documentation or methods detected & +10 \\
+Archive files present & +4 \\
+Text mentions raw/original data & +5 \\
+Text mentions results or processing & +5 \\
+Method or calibration signals & +8 \\
+Has DOI & +4 \\
+Links to related resources & +5 \\
+Recognizable open license & +4 \\
+No raw data detected & $-$18 \\
+Images/documents only, no data & $-$15 \\
+No public files & $-$30 \\
+Complete chain bonus (4+ categories) & +5 \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \subsection{File Categories}
 
@@ -263,7 +337,7 @@ spmkit-data-hunter campaign create <name>
   --timeout <n>            HTTP timeout in seconds (default: 45.0)
 \end{lstlisting}
 
-The configuration is frozen at creation time. To change parameters, create a new campaign.
+The configuration is frozen at creation time.
 
 \subsection{\texttt{campaign run} / \texttt{campaign resume}}
 
@@ -310,7 +384,9 @@ spmkit-data-hunter campaign export <name>
 Exports all records to JSON, JSONL, CSV, and Markdown files.
 
 \bigskip
-{\warnbox{\textbf{Warning:} A campaign checkpoint advances only after the entire page is committed. A failed API partition is \textbf{never} marked exhausted — it retries on the next resume.}}
+\begin{warnbox}
+\textbf{Warning:} A campaign checkpoint advances only after the entire page is committed. A failed API partition is \textbf{never} marked exhausted --- it retries on the next resume.
+\end{warnbox}
 
 % ======================================================================
 \section{Download Commands}
@@ -347,7 +423,9 @@ spmkit-data-hunter download run <campaign-name>
 Downloads are resumable: already-downloaded files with matching checksums are skipped. Repository checksums (MD5) and local SHA-256 are recorded.
 
 \bigskip
-{\warnbox{\textbf{Warning:} Unbounded downloads require \texttt{--accept-unbounded-downloads}. This is a deliberate safety acknowledgment, not a scientific filter.}}
+\begin{warnbox}
+\textbf{Warning:} Unbounded downloads require \texttt{--accept-unbounded-downloads}. This is a deliberate safety acknowledgment, not a scientific filter.
+\end{warnbox}
 
 % ======================================================================
 \section{Campaign Workflow --- Step by Step}
@@ -424,7 +502,9 @@ spmkit-data-hunter download run afm-scan \
 \end{tabular}
 \end{center}
 
-{\tipbox{\textbf{Tip:} A campaign can be resumed from \texttt{paused} or \texttt{stopped}. Checkpoints are page-granular. A resumed campaign skips exhausted partitions and retries failed ones.}}
+\begin{tipbox}
+\textbf{Tip:} A campaign can be resumed from \texttt{paused} or \texttt{stopped}. Checkpoints are page-granular. A resumed campaign skips exhausted partitions and retries failed ones.
+\end{tipbox}
 
 % ======================================================================
 \section{Query Presets}
@@ -479,7 +559,7 @@ DataCite & \texttt{api.datacite.org} & Meta-index & Usually no & Cursor & Not re
 \end{tabular}
 \end{center}
 
-DataCite records are valuable for DOI discovery and publication linkage but typically lack file inventories — they are metadata evidence, not benchmark packages.
+DataCite records are valuable for DOI discovery and publication linkage but typically lack file inventories --- they are metadata evidence, not benchmark packages.
 
 \textbf{Planned adapters:} OSF, Dataverse, Dryad, InvenioRDM, DSpace 7.
 
@@ -501,10 +581,10 @@ spm_benchmarks/
 \end{lstlisting}
 
 \begin{itemize}[nosep]
-  \item \texttt{catalog.sqlite3} — source of truth for discovered records and file inventories.
-  \item \texttt{campaigns.sqlite3} — source of truth for campaign state (campaigns, checkpoints, campaign\_records, events audit log).
-  \item Export files are views — regenerate anytime with \texttt{campaign export}.
-  \item Both databases use WAL journal mode. Stop the process before copying database files.
+  \item \texttt{catalog.sqlite3} --- source of truth for discovered records and file inventories.
+  \item \texttt{campaigns.sqlite3} --- source of truth for campaign state.
+  \item Export files are views --- regenerate anytime with \texttt{campaign export}.
+  \item Both databases use WAL journal mode.
 \end{itemize}
 
 % ======================================================================
@@ -514,20 +594,22 @@ spm_benchmarks/
 This section is essential reading before using discovered data for scientific validation.
 
 \begin{itemize}[nosep]
-  \item \textbf{Discovery is not validation} — results are candidates, not benchmarks. A human must verify instrument conditions, calibration, method, units, and software versions.
-  \item \textbf{Raw-only files are reader fixtures} — a \texttt{.nid} file can test a parser, not an algorithm.
-  \item \textbf{Processed values are references, not absolute truth} — without documented units, calibration, and parameters, they are weak references.
-  \item \textbf{Gwyddion is a reference, not an oracle} — version, parameters, and operation order must be recorded.
+  \item \textbf{Discovery is not validation} --- results are candidates, not benchmarks.
+  \item \textbf{Raw-only files are reader fixtures} --- a \texttt{.nid} file can test a parser, not an algorithm.
+  \item \textbf{Processed values are references, not absolute truth} --- units, calibration, and parameters matter.
+  \item \textbf{Gwyddion is a reference, not an oracle} --- version, parameters, and operation order must be recorded.
 \end{itemize}
 
-\textbf{Data Hunter guarantees:} structured discovery, classification, provenance linking, file reachability verification.
+Data Hunter guarantees: structured discovery, classification, provenance linking, file reachability verification.
 
-\textbf{Data Hunter does NOT guarantee:} scientific correctness certification, automated benchmark validation, ground truth declarations.
+Data Hunter does NOT guarantee: scientific correctness certification, automated benchmark validation, ground truth declarations.
 
 Read the full doctrine in \texttt{SCIENTIFIC\_DATA\_HUNTING\_BIBLE.md}.
 
 \bigskip
-{\warnbox{\textbf{Before reusing a dataset:} (1) read its license, (2) cite the version DOI, (3) do not redistribute restricted files, (4) preserve checksums and provenance, (5) record processing parameters, (6) consult an AFM/SPM practitioner.}}
+\begin{warnbox}
+\textbf{Before reusing a dataset:} (1) read its license, (2) cite the version DOI, (3) do not redistribute restricted files, (4) preserve checksums and provenance, (5) record processing parameters, (6) consult an AFM/SPM practitioner.
+\end{warnbox}
 
 % ======================================================================
 \section{Development}
@@ -564,18 +646,18 @@ Every real false positive or API edge case should become a regression test.
 % ======================================================================
 
 \begin{center}
-\begin{tabular}{p{4.5cm}p{9cm}}
+\begin{tabularx}{\linewidth}{>{\RaggedRight}p{5cm}>{\RaggedRight}X}
 \toprule
 \textbf{Problem} & \textbf{Solution} \\
 \midrule
-Campaign won't start & Check it was created (\texttt{campaign list}), verify output directory, run \texttt{doctor}. \\
-Unbounded downloads error & Pass \texttt{--accept-unbounded-downloads} to confirm. \\
-Network errors & Engine catches exceptions per partition and continues. Retries on resume. \\
-Campaign appears stuck & Check heartbeat (\texttt{campaign status}). Reduce \texttt{--rate-seconds}. \\
-Corrupted downloads & Check checksums in catalog. Delete file and re-download. \\
+Campaign won't start & Check it was created (\texttt{campaign list}), verify output directory, run \texttt{doctor}. \\[4pt]
+Unbounded downloads error & Pass \texttt{--accept-unbounded-downloads} to confirm. \\[4pt]
+Network errors during campaign & Engine catches exceptions per partition and continues. Retries on resume. \\[4pt]
+Campaign appears stuck & Check heartbeat (\texttt{campaign status}). Reduce \texttt{--rate-seconds}. \\[4pt]
+Corrupted downloads & Check checksums in catalog. Delete file and re-download. \\[4pt]
 SQLite database locked & Ensure one process per output directory. WAL recovery is automatic. \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
 Inspecting campaign events directly:

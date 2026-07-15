@@ -383,6 +383,15 @@ spm_benchmarks/
 
 Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for module details and invariants.
 
+## Documentation
+
+- [Usage Guide](docs/usage-guide.md) — Full reference (Markdown, canonical)
+- [Usage Guide PDF](docs/usage-guide.pdf) — Printable companion (12 pages)
+- [Scientific Data Hunting Bible](SCIENTIFIC_DATA_HUNTING_BIBLE.md) — Validation doctrine
+- [Validation Taxonomy](docs/VALIDATION_TAXONOMY.md)
+- [Source Adapter Guide](docs/SOURCE_ADAPTER_GUIDE.md)
+- [Threat Model](docs/THREAT_MODEL.md)
+
 ---
 
 ## Query presets
