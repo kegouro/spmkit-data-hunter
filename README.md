@@ -24,9 +24,21 @@ classifies their scientific utility, and selectively downloads them.
 
 It targets the evidence chain needed to validate scientific software:
 
-<p align="center">
-  <img src="branding/evidence-chain.png" alt="Evidence chain: native data → method/code → processed output → publication" width="720">
-</p>
+```mermaid
+graph LR
+    classDef gold fill:#f5a72c,stroke:#2a2118,color:#0a0908,font-weight:bold;
+    classDef silver fill:#efe7d8,stroke:#2a2118,color:#0a0908,font-weight:bold;
+    classDef bronze fill:#ff7a3c,stroke:#2a2118,color:#0a0908,font-weight:bold;
+
+    Raw["Raw Data<br>(Native AFM/SPM)"] --> Proc["Processed Outputs<br>(Reference Values)"]
+    Proc --> Code["Code & Pipeline<br>(Reproducible Steps)"]
+    Code --> Method["Method Description<br>(Calibration & Models)"]
+    Method --> DOI["Linked Publication<br>(DOI Linkage)"]
+
+    class DOI gold;
+    class Proc,Code,Method silver;
+    class Raw bronze;
+```
 
 A raw AFM file tests a reader. A raw file alongside processed data, code,
 and a linked publication can validate an analysis algorithm. Data Hunter
@@ -222,6 +234,10 @@ spmkit-data-hunter campaign create afm-1h \
 spmkit-data-hunter campaign run afm-1h --output spm_benchmarks
 ```
 
+<p align="center">
+  <img src="branding/screenshot-campaign-run.svg" alt="Campaign Create and Run Output" width="640">
+</p>
+
 The campaign stops at the nearest safe page checkpoint when the hour is up.
 
 ### Resume a campaign
@@ -236,6 +252,10 @@ spmkit-data-hunter campaign resume afm-1h --output spm_benchmarks
 spmkit-data-hunter campaign status afm-1h
 spmkit-data-hunter campaign list
 ```
+
+<p align="center">
+  <img src="branding/screenshot-campaign-status.svg" alt="Campaign Status Output" width="640">
+</p>
 
 ### Probe remote files without downloading
 
@@ -377,9 +397,33 @@ spm_benchmarks/
 
 ## Architecture
 
-<p align="center">
-  <img src="branding/architecture-diagram.png" alt="Architecture: CLI → CampaignEngine → PagedSource adapters → Catalog + CampaignStore → Exports" width="720">
-</p>
+```mermaid
+graph TD
+    %% Styling
+    classDef component fill:#15110d,stroke:#2a2118,color:#efe7d8;
+    classDef engine fill:#f5a72c,stroke:#2a2118,color:#0a0908,font-weight:bold;
+    classDef store fill:#38bdf8,stroke:#2a2118,color:#0a0908,font-weight:bold;
+    
+    CLI["Command-Line Interface (CLI)<br>cli.py / legacy.py"]
+    Engine["Campaign Engine<br>engine.py"]
+    Sources["Paged Source Adapters<br>sources.py (Zenodo, Figshare, DataCite)"]
+    Store[("Campaign Store<br>campaigns.sqlite3")]
+    Catalog[("Persistent Catalog<br>catalog.sqlite3")]
+    Exports["Exporter<br>catalog_io.py (JSON, CSV, JSONL, MD)"]
+    Verification["Verifier<br>verification.py (HEAD/Range Probes)"]
+
+    CLI --> Engine
+    CLI --> Verification
+    Engine --> Sources
+    Engine --> Store
+    Engine --> Catalog
+    Verification --> Catalog
+    Catalog --> Exports
+    
+    class CLI,Sources,Exports,Verification component;
+    class Engine engine;
+    class Store,Catalog store;
+```
 
 Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for module details and invariants.
 
