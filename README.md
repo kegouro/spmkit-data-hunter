@@ -303,16 +303,6 @@ In legacy mode, `--limit 0` searches until the source returns no more results.
 Campaigns are strongly preferred for long runs — legacy mode does not persist
 page checkpoints.
 
-### What it looks like
-
-<p align="center">
-  <img src="branding/screenshot-campaign-run.png" alt="Campaign run with heartbeat output" width="720">
-</p>
-
-<p align="center">
-  <img src="branding/screenshot-campaign-status.png" alt="Campaign status with stats" width="720">
-</p>
-
 ---
 
 ## Recommended workflows
