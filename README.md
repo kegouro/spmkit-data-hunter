@@ -7,7 +7,7 @@
 *Discover, catalog, and triage public AFM/SPM datasets for scientific software validation.*
 
 <p align="center">
-  <img src="branding/banner.png" alt="SPM-Kit Data Hunter" width="640">
+  <img src="branding/banner.png" alt="SPM-Kit Data Hunter" width="800">
 </p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
