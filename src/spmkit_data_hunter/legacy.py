@@ -175,6 +175,82 @@ RAW_EXTENSIONS = {
     ".afm",
 }
 
+# Vendor-native instrument formats — these are the ONLY files that unambiguously
+# signal raw AFM/SPM data. Everything else (CSV, TSV, XLSX, TXT, HDF5, etc.) is
+# an export or derivative.
+INSTRUMENT_RAW_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".nid",
+        ".nhf",
+        ".gwy",
+        ".jpk",
+        ".jpk-force",
+        ".jpk-qi-data",
+        ".jpk-qi-image",
+        ".h5-jpk",
+        ".spm",
+        ".ibw",
+        ".mi",
+        ".mtrx",
+        ".sxm",
+        ".wsxm",
+        ".aris",
+        ".mdt",
+        ".sm4",
+        ".stp",
+        ".top",
+        ".xqd",
+        ".ardf",
+        ".asd",
+        ".gsf",
+        ".sdf",
+        ".sur",
+        ".x3p",
+        ".bcr",
+        ".bcrf",
+        ".nan",
+        ".nao",
+        ".sm2",
+        ".sm3",
+        ".cur",
+        ".afm",
+        ".topostats",
+    }
+)
+
+# Text/excel exports that are ambiguous — they may contain "raw" signals in
+# their name but are NOT instrument data. They contribute to evidence but
+# should never unblock `benchmark_ready` on their own.
+DERIVED_RAW_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".csv",
+        ".tsv",
+        ".xlsx",
+        ".xls",
+        ".ods",
+        ".txt",
+        ".dat",
+        ".json",
+        ".yaml",
+        ".yml",
+    }
+)
+
+# Publication/documentation-only formats. A record whose file inventory consists
+# exclusively of these is NOT a data dataset.
+PUBLICATION_ONLY_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".pdf",
+        ".docx",
+        ".odt",
+        ".tex",
+        ".html",
+        ".md",
+        ".rst",
+        ".bib",
+    }
+)
+
 PROCESSED_EXTENSIONS = {
     ".csv",
     ".tsv",
@@ -358,6 +434,95 @@ SPM_WORDS = {
     "topography",
 }
 
+# Patterns that strongly suggest a record belongs to a domain unrelated to
+# AFM/SPM microscopy. When these are present we require stronger evidence
+# (native extensions or multiple explicit AFM phrases) to pass the gate.
+NEGATIVE_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+    for term in [
+        "clinical trial",
+        "meta-analysis",
+        "patient cohort",
+        "drug efficacy",
+        "Table 1",
+        "Table 2",
+        "Table 3",
+        "Supplementary Data",
+        "questionnaire",
+        "survey",
+        "respondent",
+        "efficacy of",
+        "double-blind",
+        "placebo",
+        "randomized controlled",
+        "case-control",
+        "cross-sectional",
+        "longitudinal study",
+        "epidemiology",
+        "genome-wide",
+        "transcriptomic",
+        "proteomic",
+        "metabolomic",
+        "gut microbiota",
+        "fecal microbiota",
+        "16S rRNA",
+        "RNA-seq",
+        "DNA methylation",
+        "single-cell RNA",
+        "flow cytometry",
+        "ELISA",
+        "western blot",
+        "immunohistochemistry",
+        "PCR assay",
+        "phylogenetic",
+        "species delimitation",
+        "ecological niche",
+        "bioinformatics pipeline",
+        "deep learning model",
+        "machine learning classification",
+        "natural language",
+        "sentiment analysis",
+        "social media",
+        "teacher",
+        "student",
+        "classroom",
+        "curriculum",
+        "pedagogical",
+        "groundwater",
+        "aquifer",
+        "precipitation",
+        "atmospheric",
+        "troposphere",
+        "dendrochronology",
+        "palynology",
+        "sediment core",
+        "pollen analysis",
+        "foraminifera",
+        "diatom assemblage",
+        "phytoplankton",
+        "zooplankton",
+        "fishery",
+        "aquaculture",
+        "animal behavior",
+        "mating",
+        "foraging",
+        "predation",
+        "parasitoid",
+        "host-parasite",
+        "antioxidant",
+        "DPPH",
+        "cytotoxicity",
+        "apoptosis",
+        "cell viability",
+        "MTT assay",
+        "caspase",
+    ]
+]
+
+# Known high-confidence AFM/SPM landing domains.
+CONTACT_ENGINEERING_DOMAIN = re.compile(r"\bcontact\.engineering\b", re.IGNORECASE)
+SPMKIT_DOMAIN = re.compile(r"\bspmkit\.(?:org|io|com)\b", re.IGNORECASE)
+
 OPEN_LICENSE_HINTS = {
     "cc0",
     "cc-by",
@@ -491,6 +656,12 @@ def infer_categories(name: str) -> set[str]:
     ``raw`` signal suppresses their default ``processed`` label unless the name
     independently contains a processed-result signal. This prevents a single
     file such as ``raw_data.csv`` from fabricating a complete validation chain.
+
+    New in v2.2.1: vendor-native instrument formats are tagged as
+    ``instrument_raw``. Derived/text exports (CSV, TSV, XLSX) are tagged as
+    ``derived_raw`` when a raw signal is present, never ``raw`` alone.
+    Publication-only formats (.docx, .pdf, .tex) are NEVER classified as raw
+    even if their name contains raw-signal words.
     """
 
     lowered = name.casefold()
@@ -503,14 +674,33 @@ def infer_categories(name: str) -> set[str]:
         {"script", "scripts", "code", "notebook", "pipeline", "workflow"},
     )
 
-    if suffix in RAW_EXTENSIONS:
+    # ── vendor-native instrument format ────────────────────────────
+    if suffix in INSTRUMENT_RAW_EXTENSIONS:
         categories.add("raw")
-    if suffix in PROCESSED_EXTENSIONS:
+        categories.add("instrument_raw")
+
+    # ── derived / export formats ───────────────────────────────────
+    elif suffix in DERIVED_RAW_EXTENSIONS:
+        if raw_signal:
+            categories.add("raw")
+            categories.add("derived_raw")
+        if processed_signal:
+            categories.add("processed")
+        if not categories:
+            categories.add("processed")
+
+    # ── other PROCESSED extensions (HDF5, TIFF, NPY, MAT, etc.) ──
+    elif suffix in PROCESSED_EXTENSIONS:
         categories.add("processed")
+
     if suffix in CODE_EXTENSIONS:
         categories.add("code")
+
+    # ── documentation / publication formats ────────────────────────
+    # These are NEVER classified as raw data, regardless of filename words.
     if suffix in DOCUMENT_EXTENSIONS:
         categories.add("documentation")
+
     if suffix in IMAGE_EXTENSIONS:
         categories.add("image")
     if suffix in ARCHIVE_SUFFIXES:
@@ -598,6 +788,12 @@ class DatasetRecord:
     utility_class: str = "incomplete"
     utility_reasons: list[str] = field(default_factory=list)
     discovered_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    # v2.2.1: classification refinement flags
+    likely_false_positive: bool = False
+    instrument_data_unknown: bool = False
+    vendor_format_detected: bool = False
+    only_publication_assets: bool = False
 
     @property
     def key(self) -> str:
@@ -815,6 +1011,40 @@ def _build_relevance_text(record: DatasetRecord) -> str:
     return " ".join(parts)
 
 
+def _check_negative_context(text: str) -> tuple[bool, list[str]]:
+    """Detect signals that the record belongs to an unrelated domain.
+
+    Returns (is_unrelated, list_of_matched_patterns).
+    When unrelated signals are present, the domain relevance gate requires
+    stronger AFM/SPM evidence (native extensions or multiple explicit phrases).
+    """
+    matches: list[str] = []
+    for pattern in NEGATIVE_CONTEXT_PATTERNS:
+        if pattern.search(text):
+            # Extract the pattern string for reporting
+            matches.append(pattern.pattern.lstrip("\\b").rstrip("\\b"))
+    return bool(matches), matches
+
+
+def _check_high_confidence_source(record: DatasetRecord) -> bool:
+    """Check if the record is from a known high-confidence AFM/SPM source."""
+    text = record.landing_url + " " + record.source
+    if CONTACT_ENGINEERING_DOMAIN.search(text):
+        return True
+    if SPMKIT_DOMAIN.search(text):
+        return True
+    return False
+
+
+def _has_instrument_raw(record: DatasetRecord) -> bool:
+    """Check whether the record contains at least one vendor-native instrument file."""
+    for asset in record.files:
+        suffix = full_suffix(asset.name)
+        if suffix in INSTRUMENT_RAW_EXTENSIONS:
+            return True
+    return False
+
+
 def assess_domain_relevance(record: DatasetRecord) -> DatasetRecord:
     """Evalúa si un registro pertenece al dominio AFM/SPM.
 
@@ -822,17 +1052,33 @@ def assess_domain_relevance(record: DatasetRecord) -> DatasetRecord:
     (siglas, familias contextuales).  Aplica una regla de gate documentada.
 
     La función es pura, determinista y no depende de la red.
+
+    New in v2.2.1:
+    - Negative context filter: records with strong unrelated-domain signals
+      require native instrument files or multiple explicit AFM phrases.
+    - contact.engineering and spmkit.org are treated as high-confidence sources.
+    - Instrument-raw extensions (vendor formats) are a stronger signal than
+      generic "raw" files (CSV, XLSX).
     """
     reasons: list[str] = []
     score = 0
+
+    # ── High-confidence source check ─────────────────────────────────────
+    if _check_high_confidence_source(record):
+        score += 70
+        reasons.append("+70 fuente de alta confianza AFM/SPM (contact.engineering)")
+        record.relevance_score = min(100, score)
+        record.domain_relevant = True
+        record.relevance_reasons = reasons
+        return record
 
     # ── Señales desde archivos ─────────────────────────────────────────
     file_sigs = _check_file_signals(record)
 
     if file_sigs["has_native"]:
         exts = file_sigs["native_exts"]
-        score += 60
-        reasons.append(f"+60 formato SPM nativo: {', '.join(exts)}")
+        score += 70
+        reasons.append(f"+70 formato SPM nativo: {', '.join(exts)}")
         record.relevance_score = min(100, score)
         record.domain_relevant = True
         record.relevance_reasons = reasons
@@ -842,17 +1088,31 @@ def assess_domain_relevance(record: DatasetRecord) -> DatasetRecord:
     text = _build_relevance_text(record)
     sigs = _check_text_signals(text)
 
+    # Negative context check: if the record looks like a clinical trial,
+    # ecology paper, etc., require stronger AFM/SPM evidence.
+    has_negative, negative_matches = _check_negative_context(text)
+    if has_negative:
+        reasons.append(f"señal de dominio no relacionado: {', '.join(negative_matches[:5])}")
+
     # Frases fuertes (inequívocas).
+    strong_phrase_count = 0
     for phrase in sigs["strong_phrases"]:
+        strong_phrase_count += 1
         score += 60
         reasons.append(f'+60 frase AFM/SPM inequívoca: "{phrase}"')
-        break  # Una sola frase fuerte basta
+        break  # Una sola frase fuerte basta para la puntuación base
 
-    if score >= 60:
+    if score >= 60 and not has_negative:
         record.relevance_score = min(100, score)
         record.domain_relevant = True
         record.relevance_reasons = reasons
         return record
+
+    # With negative context, require multiple strong phrases or native files
+    if score >= 60 and has_negative:
+        reasons.append("contexto no-AFM detectado: requiere evidencia adicional")
+        # Stay below gate — let contextual families decide
+        score = max(score - 30, 0)  # Reduce confidence but don't zero
 
     # Acrónimos (señal débil, no suficiente sola).
     for acr in sigs["acronyms"]:
@@ -869,8 +1129,24 @@ def assess_domain_relevance(record: DatasetRecord) -> DatasetRecord:
         score += family_bonus
 
     # Gate: se requiere al menos una señal fuerte, o dos familias independientes.
+    # With negative context, also require native files or strong phrases.
     independent_families = len(sigs["acronyms"]) + len(families_detected)
-    if score >= 60 or independent_families >= 2:
+
+    if has_negative:
+        # Negative context: require stronger evidence — either native files
+        # (already checked, would have returned early) or 2+ strong phrases
+        # plus 2+ independent families, i.e. overwhelming evidence.
+        if strong_phrase_count >= 2 and independent_families >= 2:
+            record.domain_relevant = True
+            reasons.append(
+                "gate aprobado: evidencia AFM/SPM suficiente a pesar de contexto no relacionado"
+            )
+        else:
+            record.domain_relevant = False
+            reasons.append(
+                "gate rechazado: contexto no relacionado; se requiere evidencia AFM/SPM más fuerte"
+            )
+    elif score >= 60 or independent_families >= 2:
         record.domain_relevant = True
         reasons.append("gate aprobado: evidencia AFM/SPM suficiente")
     else:
@@ -891,17 +1167,41 @@ def assess_domain_relevance(record: DatasetRecord) -> DatasetRecord:
 
 
 def calculate_benchmark_score(record: DatasetRecord) -> tuple[int, list[str]]:
-    """Calcula la calidad de la cadena de evidencia (0-100), sin evaluar relevancia AFM/SPM."""
+    """Calcula la calidad de la cadena de evidencia (0-100), sin evaluar relevancia AFM/SPM.
+
+    New in v2.2.1: instrument-raw files (vendor formats) are distinguished from
+    derived-raw files (CSV, TSV, XLSX exports). Records without instrument-raw
+    files are severely penalized. Publication-only files NEVER count as raw.
+    """
     score = 0
     reasons: list[str] = []
     cats = record.categories
 
-    if "raw" in cats:
+    has_instrument = "instrument_raw" in cats
+    has_derived = "derived_raw" in cats
+    has_any_raw = "raw" in cats
+
+    if has_instrument:
         score += 32
-        reasons.append("+32 contiene datos aparentemente crudos")
+        reasons.append("+32 contiene datos crudos en formato de instrumento")
+    elif has_derived:
+        score += 18
+        reasons.append("+18 contiene datos en formato exportado/texto (CSV/XLSX/TXT)")
+    elif has_any_raw:
+        score += 14
+        reasons.append("+14 contiene datos con señal cruda en formato de archivo")
     else:
         score -= 18
         reasons.append("-18 no se detectaron datos crudos")
+
+    # ── No-instrument penalty ──────────────────────────────────────
+    if not has_instrument:
+        if has_any_raw:
+            reasons.append("-10 penalización: sin formato nativo de instrumento AFM/SPM")
+            score -= 10
+        else:
+            reasons.append("-30 penalización severa: sin formato nativo de instrumento")
+            score -= 30
 
     if "processed" in cats:
         score += 24
@@ -918,6 +1218,19 @@ def calculate_benchmark_score(record: DatasetRecord) -> tuple[int, list[str]]:
     if "archive" in cats:
         score += 4
         reasons.append("+4 contiene archivos comprimidos inspeccionables")
+
+    # ── Publication-only penalty ───────────────────────────────────
+    # If the ONLY file categories are image + documentation + other (no data, no code),
+    # cap the score. We check extensions directly to avoid relying on category logic.
+    only_publication = True
+    for asset in record.files:
+        suffix = full_suffix(asset.name)
+        if suffix not in PUBLICATION_ONLY_EXTENSIONS and suffix not in IMAGE_EXTENSIONS:
+            only_publication = False
+            break
+    if only_publication and record.files:
+        score -= 20
+        reasons.append("-20 solo contiene archivos de publicación/imagen (.docx/.pdf/.png)")
 
     combined = " ".join(
         [
@@ -977,31 +1290,86 @@ def _distinct_evidence_assets(record: DatasetRecord) -> tuple[set[str], set[str]
 
 
 def classify_utility(record: DatasetRecord) -> DatasetRecord:
-    """Assign a scientific-use class without pretending to establish ground truth."""
+    """Assign a scientific-use class without pretending to establish ground truth.
+
+    New in v2.2.1:
+    - ``likely_false_positive``: records that pass domain gate but show
+      suspicious patterns (only .docx/.pdf/.xlsx, clinical trial titles, etc.)
+    - ``instrument_data_unknown``: DataCite records with no file inventory
+      but strong domain signals.
+    - ``vendor_format_detected``: records containing native instrument formats.
+    """
 
     cats = record.categories
     raw_assets, processed_assets = _distinct_evidence_assets(record)
     distinct_chain = bool(raw_assets and processed_assets and raw_assets != processed_assets)
     companion = bool(cats.intersection({"code", "documentation"}))
 
+    # ── Pre-classification flags ────────────────────────────────────
+    has_instrument = "instrument_raw" in cats
+
+    if has_instrument:
+        record.vendor_format_detected = True
+
+    # ── Only publication assets check ───────────────────────────────
+    if record.files:
+        only_pub = all(
+            full_suffix(asset.name) in PUBLICATION_ONLY_EXTENSIONS
+            or full_suffix(asset.name) in IMAGE_EXTENSIONS
+            for asset in record.files
+        )
+        record.only_publication_assets = only_pub
+
+    # ── Likely false positive detection ─────────────────────────────
+    if _check_negative_context(" ".join([record.title, record.description, *record.keywords]))[0]:
+        if not has_instrument:
+            record.likely_false_positive = True
+    elif record.only_publication_assets and not has_instrument:
+        record.likely_false_positive = True
+
+    # ── DataCite file-inventory-unknown ─────────────────────────────
+    if record.source == "datacite" and not record.files and record.domain_relevant:
+        record.instrument_data_unknown = True
+
+    # ── Utility classification ──────────────────────────────────────
     if not record.domain_relevant:
         utility = "incomplete"
         reasons = ["AFM/SPM domain relevance has not been established"]
-    elif distinct_chain and companion:
+    elif distinct_chain and companion and has_instrument:
         utility = "benchmark_ready"
-        reasons = ["distinct raw and processed assets", "method/code companion present"]
-    elif distinct_chain:
+        reasons = [
+            "distinct instrument raw and processed assets",
+            "method/code companion present",
+        ]
+    elif distinct_chain and has_instrument:
         utility = "crosscheck_candidate"
-        reasons = ["distinct raw and processed assets", "method/code companion missing"]
+        reasons = ["distinct instrument raw and processed assets", "method/code companion missing"]
+    elif distinct_chain and not has_instrument:
+        utility = "crosscheck_candidate"
+        reasons = [
+            "distinct raw and processed assets (no instrument formats)",
+            "verification needed",
+        ]
+    elif raw_assets and has_instrument:
+        utility = "reader_fixture"
+        reasons = ["instrument-raw evidence without an independent processed reference"]
     elif raw_assets:
         utility = "reader_fixture"
-        reasons = ["raw/native evidence without an independent processed reference"]
+        reasons = [
+            "raw/native evidence without an independent processed reference "
+            "(non-instrument format — verify manually)"
+        ]
     elif processed_assets:
         utility = "processed_reference_only"
         reasons = ["processed/reference output without recoverable raw input"]
     elif companion:
         utility = "documentation_only"
         reasons = ["documentation or code found without usable data assets"]
+    elif record.instrument_data_unknown:
+        utility = "crosscheck_candidate"
+        reasons = [
+            "no file inventory available (DataCite); strong domain signals — verify manually"
+        ]
     else:
         utility = "incomplete"
         reasons = ["insufficient evidence for a validation or reader fixture"]
@@ -1023,6 +1391,7 @@ def score_record(record: DatasetRecord) -> DatasetRecord:
 
     # 3. Calcular score final.
     cats = record.categories
+    has_instrument = "instrument_raw" in cats
     reasons: list[str] = []
 
     if record.domain_relevant:
@@ -1032,12 +1401,13 @@ def score_record(record: DatasetRecord) -> DatasetRecord:
         if (
             score >= 72
             and {"raw", "processed"}.issubset(cats)
+            and has_instrument
             and bool(cats.intersection({"code", "documentation"}))
         ):
             level = "gold"
         elif (
             score >= 48
-            and "raw" in cats
+            and has_instrument
             and bool(cats.intersection({"processed", "code", "documentation"}))
         ):
             level = "silver"
@@ -1061,7 +1431,8 @@ def score_record(record: DatasetRecord) -> DatasetRecord:
 
     # Gold and Silver describe validation-chain completeness, not merely a high
     # metadata score. A raw-only reader fixture must remain Bronze.
-    if record.utility_class == "benchmark_ready" and score >= 72:
+    # Gold requires instrument-raw files.
+    if record.utility_class == "benchmark_ready" and score >= 72 and has_instrument:
         record.level = "gold"
     elif record.utility_class in {"benchmark_ready", "crosscheck_candidate"} and score >= 48:
         record.level = "silver"
@@ -1493,24 +1864,23 @@ class Catalog:
         self.conn.commit()
 
     def _migrate_schema(self) -> None:
-        """Agrega columnas de v2.1.0 a catálogos creados con v2.0.0."""
+        """Agrega columnas de v2.1.0 y v2.2.1 a catálogos creados con versiones anteriores."""
         existing = {row[1] for row in self.conn.execute("PRAGMA table_info(records)").fetchall()}
-        if "benchmark_score" not in existing:
-            self.conn.execute(
-                "ALTER TABLE records ADD COLUMN benchmark_score INTEGER NOT NULL DEFAULT 0"
-            )
-        if "relevance_score" not in existing:
-            self.conn.execute(
-                "ALTER TABLE records ADD COLUMN relevance_score INTEGER NOT NULL DEFAULT 0"
-            )
-        if "domain_relevant" not in existing:
-            self.conn.execute(
-                "ALTER TABLE records ADD COLUMN domain_relevant INTEGER NOT NULL DEFAULT 0"
-            )
-        if "utility_class" not in existing:
-            self.conn.execute(
-                "ALTER TABLE records ADD COLUMN utility_class TEXT NOT NULL DEFAULT 'incomplete'"
-            )
+        v210_columns = {
+            "benchmark_score": "INTEGER NOT NULL DEFAULT 0",
+            "relevance_score": "INTEGER NOT NULL DEFAULT 0",
+            "domain_relevant": "INTEGER NOT NULL DEFAULT 0",
+            "utility_class": "TEXT NOT NULL DEFAULT 'incomplete'",
+        }
+        v221_columns = {
+            "likely_false_positive": "INTEGER NOT NULL DEFAULT 0",
+            "instrument_data_unknown": "INTEGER NOT NULL DEFAULT 0",
+            "vendor_format_detected": "INTEGER NOT NULL DEFAULT 0",
+            "only_publication_assets": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for col, col_type in {**v210_columns, **v221_columns}.items():
+            if col not in existing:
+                self.conn.execute(f"ALTER TABLE records ADD COLUMN {col} {col_type}")
         asset_existing = {
             row[1] for row in self.conn.execute("PRAGMA table_info(assets)").fetchall()
         }
@@ -1534,8 +1904,9 @@ class Catalog:
                 record_key, source, source_id, title, doi, landing_url, license,
                 published, modified, score, level, matched_query, metadata_json,
                 updated_at, benchmark_score, relevance_score, domain_relevant,
-                utility_class
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                utility_class, likely_false_positive, instrument_data_unknown,
+                vendor_format_detected, only_publication_assets
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(record_key) DO UPDATE SET
                 title=excluded.title,
                 doi=excluded.doi,
@@ -1567,7 +1938,11 @@ class Catalog:
                 utility_class=CASE
                     WHEN excluded.score >= records.score THEN excluded.utility_class
                     ELSE records.utility_class
-                END
+                END,
+                likely_false_positive=excluded.likely_false_positive,
+                instrument_data_unknown=excluded.instrument_data_unknown,
+                vendor_format_detected=excluded.vendor_format_detected,
+                only_publication_assets=excluded.only_publication_assets
             """,
             (
                 record.key,
@@ -1588,6 +1963,10 @@ class Catalog:
                 record.relevance_score,
                 1 if record.domain_relevant else 0,
                 record.utility_class,
+                1 if record.likely_false_positive else 0,
+                1 if record.instrument_data_unknown else 0,
+                1 if record.vendor_format_detected else 0,
+                1 if record.only_publication_assets else 0,
             ),
         )
 
@@ -1973,6 +2352,10 @@ def export_catalog(records: Sequence[DatasetRecord], output_dir: Path) -> None:
                 "relevance_score",
                 "domain_relevant",
                 "utility_class",
+                "likely_false_positive",
+                "instrument_data_unknown",
+                "vendor_format_detected",
+                "only_publication_assets",
                 "source",
                 "source_id",
                 "title",
@@ -1995,6 +2378,11 @@ def export_catalog(records: Sequence[DatasetRecord], output_dir: Path) -> None:
                     "benchmark_score": record.benchmark_score,
                     "relevance_score": record.relevance_score,
                     "domain_relevant": "yes" if record.domain_relevant else "no",
+                    "utility_class": record.utility_class,
+                    "likely_false_positive": "yes" if record.likely_false_positive else "no",
+                    "instrument_data_unknown": "yes" if record.instrument_data_unknown else "no",
+                    "vendor_format_detected": "yes" if record.vendor_format_detected else "no",
+                    "only_publication_assets": "yes" if record.only_publication_assets else "no",
                     "source": record.source,
                     "source_id": record.source_id,
                     "title": record.title,
@@ -2562,6 +2950,75 @@ def run_self_tests() -> None:
     assert (
         "AFM" not in " ".join(no_afm.relevance_reasons).upper() or no_afm.domain_relevant is False
     )
+
+    # ── v2.2.1: instrument_raw classification ────────────────────────
+    assert "instrument_raw" in infer_categories("sample.nid")
+    assert "instrument_raw" in infer_categories("curves.jpk-force")
+    assert "derived_raw" in infer_categories("raw_data.csv")
+    assert "raw" in infer_categories("raw_data.csv")
+    # A plain CSV without raw signal is just "processed"
+    assert "raw" not in infer_categories("table.csv")
+    assert "processed" in infer_categories("table.csv")
+    # Publication files are NEVER raw
+    assert "raw" not in infer_categories("raw_images.pdf")
+    assert "documentation" in infer_categories("raw_images.pdf")
+
+    # ── v2.2.1: negative context filter ──────────────────────────────
+    clinical = DatasetRecord(
+        source="test",
+        source_id="clinical-1",
+        title="Efficacy of esketamine for post-surgical pain: a randomized controlled trial",
+        description="Clinical trial with patient cohort and double-blind placebo control.",
+        files=[
+            FileAsset.build(name="table1.docx", url="https://example.org/t1.docx"),
+            FileAsset.build(name="supplementary.pdf", url="https://example.org/supp.pdf"),
+        ],
+    )
+    score_record(clinical)
+    assert clinical.domain_relevant is False, clinical.relevance_reasons
+    assert clinical.likely_false_positive is True
+
+    # ── v2.2.1: false positive flag on ecology ───────────────────────
+    # The eco record has no AFM signals → gate rejected → domain_relevant False.
+    # It also has csv/py/pdf files, not publication-only, and title doesn't
+    # match negative context patterns — so likely_false_positive is False.
+    # That's fine: the gate already correctly rejects it.
+    assert eco.domain_relevant is False
+
+    # ── v2.2.1: gold needs instrument_raw ─────────────────────────────
+    no_instrument = DatasetRecord(
+        source="test",
+        source_id="no-instrument",
+        title="AFM force spectroscopy dataset",
+        description="Cantilever calibration and force curve analysis.",
+        files=[
+            FileAsset.build(name="raw_data.csv", url="https://example.org/raw.csv"),
+            FileAsset.build(name="processed.csv", url="https://example.org/proc.csv"),
+            FileAsset.build(name="analysis.py", url="https://example.org/analysis.py"),
+            FileAsset.build(name="methods.docx", url="https://example.org/methods.docx"),
+        ],
+    )
+    score_record(no_instrument)
+    # Should be domain-relevant (has AFM phrase) but NOT gold (no instrument_raw)
+    assert no_instrument.domain_relevant is True
+    assert no_instrument.level != "gold", (no_instrument.level, no_instrument.score_reasons)
+
+    # ── v2.2.1: DataCite records flagged as instrument_data_unknown ──
+    datacite = DatasetRecord(
+        source="datacite",
+        source_id="1",
+        title="Surface topography challenge: Tapping mode imaging - Sample P49",
+        description="Topography dataset from contact.engineering repository.",
+        landing_url="https://contact.engineering/dataset/xxx",
+    )
+    score_record(datacite)
+    assert datacite.domain_relevant is True
+    assert datacite.instrument_data_unknown is True
+    assert "contact.engineering" in str(datacite.relevance_reasons).casefold()
+
+    # ── v2.2.1: vendor_format_detected flag ───────────────────────────
+    assert sample.vendor_format_detected is True
+    assert nid.vendor_format_detected is True
 
     print("Self-test: OK")
 

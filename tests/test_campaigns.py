@@ -180,7 +180,12 @@ def test_datacite_uses_cursor_and_marks_metadata_only() -> None:
     assert pages[0].next_cursor == "abc"
     assert pages[0].records[0].source == "datacite"
     assert pages[0].records[0].files == []
-    assert pages[0].records[0].utility_class in {"incomplete", "documentation_only"}
+    assert pages[0].records[0].utility_class in {
+        "incomplete",
+        "documentation_only",
+        "crosscheck_candidate",
+    }
+    assert pages[0].records[0].instrument_data_unknown is True
     assert client.get_calls[1][1]["params"]["page[cursor]"] == "abc"
 
 
