@@ -26,3 +26,19 @@ catalog.sqlite3-shm
 catalog.sqlite3-wal
 .mindmap-cache/
 .omo/
+
+# SQLite / base de datos generada
+database.db
+database.db-shm
+database.db-wal
+
+# Wheels y artefactos de build
+*.whl
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Benchmarks y salidas de prueba generadas
+test_benchmarks/
+test_benchmarks2/
