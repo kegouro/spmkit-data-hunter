@@ -14,6 +14,11 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Version](https://img.shields.io/badge/version-2.2.0-informational)](https://github.com/kegouro/spmkit-data-hunter)
 
+<p align="center">
+  <a href="README.es.md"><img src="https://img.shields.io/badge/README-Español-lightgrey?style=for-the-badge" alt="Español"></a>
+  <a href="README.md"><img src="https://img.shields.io/badge/README-English-blue?style=for-the-badge" alt="English"></a>
+</p>
+
 ---
 
 ## What is this?
