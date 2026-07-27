@@ -515,11 +515,24 @@ Read the full doctrine: [`SCIENTIFIC_DATA_HUNTING_BIBLE.md`](SCIENTIFIC_DATA_HUN
 
 ---
 
-## Relationship to SPM-Kit
+## Ecosystem
 
-Data Hunter is a companion project for [SPM-Kit](https://github.com/kegouro/spmkit).
-It discovers and curates public material that may support reader tests,
-cross-checks, and validation manifests. It does not perform AFM analysis itself.
+SPM-Kit Data Hunter is part of the SPM-Kit ecosystem:
+
+| Repository | Role |
+|---|---|
+| **[spmkit](https://github.com/kegouro/spmkit)** | Numerical engine, Python API, CLI and graphical workspace (Fathom) |
+| **[spmkit-validation](https://github.com/kegouro/spmkit-validation)** | External black-box validation harness that preserves reproducible evidence |
+| **[spmkit-phantoms](https://github.com/kegouro/spmkit-phantoms)** | Deterministic synthetic surfaces with known ground truth |
+| **[spmkit-data-hunter](https://github.com/kegouro/spmkit-data-hunter)** (this repo) | Discovery, inventory and triage of public AFM/SPM datasets for validation |
+
+Data Hunter discovers public material that may support reader tests, cross-checks, and validation manifests. It does not perform AFM analysis itself, and discovery does not equal validation.
+
+> **Find the evidence → define the truth → test the system externally → preserve the result.**
+
+## Acknowledgements
+
+Independently designed and developed by José Labarca Baeza, an undergraduate physics student at Universidad Técnica Federico Santa María, in the academic context of the SPM Lab.
 
 ---
 
