@@ -535,9 +535,21 @@ Data Hunter discovers public material that may support reader tests, cross-check
 
 > **Find the evidence → define the truth → test the system externally → preserve the result.**
 
+[Explore the complete ecosystem portal](https://kegouro.github.io/spmkit/ecosystem/)
+for component boundaries, artifact contracts, installation paths, and reproducible
+workflow tutorials.
+
 ## Acknowledgements
 
-Independently designed and developed by José Labarca Baeza, an undergraduate physics student at Universidad Técnica Federico Santa María, in the academic context of the SPM Lab.
+José Labarca Baeza is the creator, author, and lead developer.
+
+Tomás Corrales and the SPM Lab at Universidad Técnica Federico Santa María provided selected experimental datasets and laboratory context during the development and evaluation of SPM-Kit.
+
+María Saavedra Fredes and Benjamin Schleyer helped locate and share candidate datasets for the validation campaigns.
+
+These acknowledgements do not assign software authorship or institutional ownership.
+They do not imply that every located dataset was used, accepted, redistributable, or
+scientifically suitable.
 
 ---
 

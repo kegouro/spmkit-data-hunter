@@ -538,9 +538,21 @@ Data Hunter descubre material público que puede soportar tests de lectores, cro
 
 > **Find the evidence → define the truth → test the system externally → preserve the result.**
 
+[Explora el portal completo del ecosistema](https://kegouro.github.io/spmkit/ecosystem/)
+para conocer los límites de cada componente, contratos de artefactos, instalación
+y tutoriales de workflows reproducibles.
+
 ## Agradecimientos
 
-Diseñado y desarrollado independientemente por José Labarca Baeza, estudiante de pregrado de Física en la Universidad Técnica Federico Santa María, en el contexto académico del SPM Lab.
+José Labarca Baeza es el creador, autor y desarrollador principal.
+
+Tomás Corrales y el SPM Lab de la Universidad Técnica Federico Santa María proporcionaron datasets experimentales seleccionados y contexto de laboratorio durante el desarrollo y la evaluación de SPM-Kit.
+
+María Saavedra Fredes y Benjamin Schleyer ayudaron a localizar y compartir datasets candidatos para las campañas de validación.
+
+Estos agradecimientos no asignan autoría del software ni propiedad institucional.
+Tampoco implican que todo dataset localizado fuese usado, aceptado, redistribuible o
+científicamente adecuado.
 
 ---
 
